@@ -139,7 +139,119 @@ try {
 				break
 			}
 
-			"GET /distributiongroups" { 
+			"GET /editremotemailbox" {
+				# View / edit a single Remote Mailbox's attributes
+
+				$Table = @{}
+				if ($REQUEST.Url.Query) {
+					foreach ($Item in [URI]::UnescapeDataString(($REQUEST.Url.Query.Replace("?", ""))).Split("&")) {
+						$Table.Add($Item.Split("=")[0], $Item.Split("=")[1])
+					}
+				}
+
+				$Identity = $Table['id']
+
+				# Apply a requested change, if any, before re-reading the mailbox
+				if ($Table.ContainsKey('action')) {
+					try {
+						switch ($Table['action']) {
+							"addalias" {
+								$NewAlias = "$($Table['alias_local'])@$($Table['alias_accepteddomain'])"
+								Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Add = $NewAlias }
+								$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Added alias $NewAlias")
+								break
+							}
+							"removealias" {
+								Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Remove = $Table['alias'] }
+								$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Removed alias $($Table['alias'])")
+								break
+							}
+							"togglehidden" {
+								$NewHidden = $Table['hidden'] -eq 'true'
+								Set-RemoteMailbox -Identity $Identity -HiddenFromAddressListsEnabled $NewHidden
+								$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Set 'Hidden from address lists' to $NewHidden")
+								break
+							}
+							"setrra" {
+								Set-RemoteMailbox -Identity $Identity -RemoteRoutingAddress $Table['newrra']
+								$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote routing address updated to $($Table['newrra'])")
+								break
+							}
+						}
+					}
+					catch {
+						$HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
+					}
+				}
+
+				# Look up the mailbox to display
+				$Mailbox = Get-RemoteMailbox -Identity $Identity -ErrorAction SilentlyContinue
+
+				if (-not $Mailbox) {
+					$RESPONSE.StatusCode = 404
+					$HTMLRESPONSE = "<!doctype html><html><body>Remote mailbox '$($Identity)' not found</body></html>"
+					break
+				}
+
+				# Prepare accepted domain list, used for the "add alias" domain picker
+				$HTMLROWS_AD = ""
+				foreach ($Item in (Get-AcceptedDomain)) {
+					$HTMLROWS_AD += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+				}
+
+				# Prepare proxy address (EmailAddresses) rows, each with a remove button
+				$HTMLROWS_PROXY = ""
+				foreach ($Addr in $Mailbox.EmailAddresses) {
+					$AddrString = $Addr.ToString()
+					$IsPrimary = $AddrString.StartsWith("SMTP:")
+					if ($IsPrimary) {
+						$Badge = "<span class=`"badge text-bg-primary`">Primary</span>"
+						$RemoveBtn = ""
+					}
+					else {
+						$Badge = "<span class=`"badge text-bg-secondary`">Alias</span>"
+						$EncodedId = [URI]::EscapeDataString($Identity)
+						$EncodedAddr = [URI]::EscapeDataString($AddrString)
+						$RemoveBtn = "<a class=`"btn btn-sm btn-outline-danger`" href=`"/editremotemailbox?id=$($EncodedId)&action=removealias&alias=$($EncodedAddr)`" onclick=`"return confirm('Remove $($AddrString)?')`">Remove</a>"
+					}
+					$HTMLROWS_PROXY += "
+					<tr>
+					<td>$($AddrString)</td>
+					<td>$($Badge)</td>
+					<td>$($RemoveBtn)</td>
+					</tr>";
+				}
+
+				if ($Mailbox.HiddenFromAddressListsEnabled) {
+					$HiddenBadgeClass = "text-bg-warning"
+					$HiddenStatusText = "Hidden"
+					$HiddenToggleValue = "false"
+					$HiddenToggleLabel = "Unhide from GAL"
+				}
+				else {
+					$HiddenBadgeClass = "text-bg-success"
+					$HiddenStatusText = "Visible"
+					$HiddenToggleValue = "true"
+					$HiddenToggleLabel = "Hide from GAL"
+				}
+
+				# Create response and replace template placeholders
+				$HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editremotemailbox.html"
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{display_name}", $Mailbox.Name)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{primarysmtpaddress}", $Mailbox.PrimarySmtpAddress)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{remoteroutingaddress}", $Mailbox.RemoteRoutingAddress)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{id}", [URI]::EscapeDataString($Identity))
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_badge_class}", $HiddenBadgeClass)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_status_text}", $HiddenStatusText)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_toggle_value}", $HiddenToggleValue)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_toggle_label}", $HiddenToggleLabel)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_proxy} -->", $HTMLROWS_PROXY)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_ad} -->", $HTMLROWS_AD)
+				$HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $HTML_RESULT)
+				break
+			}
+
+			"GET /distributiongroups" {
 				# Distribution Groups Section
 
 				# Prepare Distibution Group lists split into tabs
