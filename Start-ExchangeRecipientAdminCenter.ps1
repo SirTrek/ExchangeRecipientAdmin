@@ -124,6 +124,7 @@ try {
     "$(Get-Date -Format s) Powershell webserver started."
     $WEBLOG = "$(Get-Date -Format s) Powershell webserver started.`n"
     while ($LISTENER.IsListening) {
+      try {
         # analyze incoming request
         $CONTEXT = $LISTENER.GetContext()
         $REQUEST = $CONTEXT.Request
@@ -613,6 +614,15 @@ try {
             "$(Get-Date -Format s) Stopping powershell webserver..."
             break;
         }
+      }
+      catch {
+        # A single request failing (e.g. client closed the connection before the
+        # response finished writing - "network name is no longer available") should
+        # not take down the whole webserver. Log it and keep listening.
+        "$(Get-Date -Format s) Request error: $($_.Exception.Message)"
+        $WEBLOG += "$(Get-Date -Format s) Request error: $($_.Exception.Message)`n"
+        try { $RESPONSE.Close() } catch { }
+      }
     }
 }
 finally {
