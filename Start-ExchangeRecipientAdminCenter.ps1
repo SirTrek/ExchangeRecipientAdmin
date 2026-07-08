@@ -35,6 +35,82 @@ $MIMEHASH = @{".avi" = "video/x-msvideo"; ".crt" = "application/x-x509-ca-cert";
 $HTML_SUCCESS = "<div class=`"alert alert-success d-flex align-items-center`" role=`"alert`">{result}</div>"
 $HTML_WARN = "<div class=`"alert alert-warning  d-flex align-items-center`" role=`"alert`">{result}</div>"
 
+function Get-RemoteMailboxEditPage {
+    # Renders editremotemailbox.html for a given mailbox identity. Shared by the
+    # GET (initial view) and POST (after an update) handlers below.
+    param(
+        [Parameter(Mandatory)][string]$Identity,
+        [string]$ResultHtml = ""
+    )
+
+    $Mailbox = Get-RemoteMailbox -Identity $Identity -ErrorAction SilentlyContinue
+
+    if (-not $Mailbox) {
+        return "<!doctype html><html><body>Remote mailbox '$($Identity)' not found</body></html>"
+    }
+
+    # Accepted domain list, used for the "add alias" domain picker
+    $HTMLROWS_AD = ""
+    foreach ($Item in (Get-AcceptedDomain)) {
+        $HTMLROWS_AD += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+    }
+
+    # Proxy address (EmailAddresses) rows, each with a remove button
+    $HTMLROWS_PROXY = ""
+    foreach ($Addr in $Mailbox.EmailAddresses) {
+        $AddrString = $Addr.ToString()
+        $IsPrimary = $AddrString.StartsWith("SMTP:")
+        if ($IsPrimary) {
+            $Badge = "<span class=`"badge text-bg-primary`">Primary</span>"
+            $RemoveBtn = ""
+        }
+        else {
+            $Badge = "<span class=`"badge text-bg-secondary`">Alias</span>"
+            $RemoveBtn = "
+            <form method=`"post`" action=`"/editremotemailbox`" onsubmit=`"return confirm('Remove $($AddrString)?')`">
+            <input type=`"hidden`" name=`"id`" value=`"$($Mailbox.PrimarySmtpAddress)`">
+            <input type=`"hidden`" name=`"Action`" value=`"removealias`">
+            <input type=`"hidden`" name=`"alias`" value=`"$($AddrString)`">
+            <button type=`"submit`" class=`"btn btn-sm btn-outline-danger`">Remove</button>
+            </form>"
+        }
+        $HTMLROWS_PROXY += "
+        <tr>
+        <td>$($AddrString)</td>
+        <td>$($Badge)</td>
+        <td>$($RemoveBtn)</td>
+        </tr>";
+    }
+
+    if ($Mailbox.HiddenFromAddressListsEnabled) {
+        $HiddenBadgeClass = "text-bg-warning"
+        $HiddenStatusText = "Hidden"
+        $HiddenToggleValue = "false"
+        $HiddenToggleLabel = "Unhide from GAL"
+    }
+    else {
+        $HiddenBadgeClass = "text-bg-success"
+        $HiddenStatusText = "Visible"
+        $HiddenToggleValue = "true"
+        $HiddenToggleLabel = "Hide from GAL"
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editremotemailbox.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $Mailbox.DisplayName)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $Mailbox.PrimarySmtpAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Alias}", $Mailbox.Alias)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{RemoteRoutingAddress}", $Mailbox.RemoteRoutingAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{id}", $Mailbox.PrimarySmtpAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_badge_class}", $HiddenBadgeClass)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_status_text}", $HiddenStatusText)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_toggle_value}", $HiddenToggleValue)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{hidden_toggle_label}", $HiddenToggleLabel)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_proxy} -->", $HTMLROWS_PROXY)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_ad} -->", $HTMLROWS_AD)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
 # Starting the powershell webserver
 "$(Get-Date -Format s) Starting Exchange Recipient Admin Webserver at: $($BINDING)"
 $LISTENER = New-Object System.Net.HttpListener
@@ -137,14 +213,9 @@ try {
 
             "GET /editremotemailbox" {
                 # Edit Remote Mailbox Section
-                $id = $REQUEST.Url.Query.Split("=")[1]
-                $remotemailbox = Get-RemoteMailbox -Identity $id
-                
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\editremotemailbox.html")
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $remotemailbox.DisplayName)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $remotemailbox.PrimarySmtpAddress)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Alias}", $remotemailbox.Alias)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{RemoteRoutingAddress}", $remotemailbox.RemoteRoutingAddress)
+                $id = [URI]::UnescapeDataString($REQUEST.Url.Query.TrimStart('?').Split("=")[1])
+
+                $HTMLRESPONSE = Get-RemoteMailboxEditPage -Identity $id
                 break
             }
 
@@ -161,15 +232,42 @@ try {
                     $params[$key] = [System.Web.HttpUtility]::UrlDecode($value)
                 }
 
+                # "id" is set by the alias/hidden mini-forms; the main properties
+                # form has no id field and keys off PrimarySmtpAddress instead.
+                $Identity = if ($params.ContainsKey('id')) { $params['id'] } else { $params['PrimarySmtpAddress'] }
+
                 try {
-                    Set-RemoteMailbox -Identity $params['PrimarySmtpAddress'] -DisplayName $params['DisplayName'] -Alias $params['Alias'] -RemoteRoutingAddress $params['RemoteRoutingAddress']
-                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox updated successfully")
+                    switch ($params['Action']) {
+                        "addalias" {
+                            $NewAlias = "$($params['alias_local'])@$($params['alias_accepteddomain'])"
+                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Add = $NewAlias }
+                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Added alias $NewAlias")
+                            break
+                        }
+                        "removealias" {
+                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Remove = $params['alias'] }
+                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Removed alias $($params['alias'])")
+                            break
+                        }
+                        "togglehidden" {
+                            $NewHidden = $params['hidden'] -eq 'true'
+                            Set-RemoteMailbox -Identity $Identity -HiddenFromAddressListsEnabled $NewHidden
+                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Set 'Hidden from address lists' to $NewHidden")
+                            break
+                        }
+                        default {
+                            Set-RemoteMailbox -Identity $Identity -DisplayName $params['DisplayName'] -Alias $params['Alias'] -RemoteRoutingAddress $params['RemoteRoutingAddress']
+                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox updated successfully")
+                            # DisplayName/Alias changes don't affect PrimarySmtpAddress, so it still identifies the mailbox below
+                            $Identity = $params['PrimarySmtpAddress']
+                        }
+                    }
                 }
                 catch {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\remotemailboxes.html").Replace("<!-- {result} -->", $HTML_RESULT)
+                $HTMLRESPONSE = Get-RemoteMailboxEditPage -Identity $Identity -ResultHtml $HTML_RESULT
                 break
             }
 
