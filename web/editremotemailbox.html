@@ -235,17 +235,21 @@
       feather.replace()
 
       (function () {
-        var expected = "{PrimarySmtpAddress}";
+        var expected = "{PrimarySmtpAddress}".trim().toLowerCase();
         var input = document.getElementById('confirmAddress');
         var button = document.getElementById('disableButton');
         var form = document.getElementById('disableForm');
 
+        function matches() {
+          return input.value.trim().toLowerCase() === expected;
+        }
+
         input.addEventListener('input', function () {
-          button.disabled = (input.value !== expected);
+          button.disabled = !matches();
         });
 
         form.addEventListener('submit', function (e) {
-          if (input.value !== expected || !confirm('This will disable the Remote Mailbox for ' + expected + '. Continue?')) {
+          if (!matches() || !confirm('This will disable the Remote Mailbox for ' + expected + '. Continue?')) {
             e.preventDefault();
           }
         });
