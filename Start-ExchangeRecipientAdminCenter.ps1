@@ -111,6 +111,59 @@ function Get-RemoteMailboxEditPage {
     return $HTMLRESPONSE
 }
 
+function Get-RemoteMailboxListPage {
+    # Renders remotemailboxes.html. Used after disabling a Remote Mailbox, since
+    # the mailbox no longer exists to redirect back to an edit page for.
+    param(
+        [string]$ResultHtml = ""
+    )
+
+    $HTMLROWS_USERS = ""
+    foreach ($Item in (Get-User -Filter "RecipientType -eq 'User' -and RecipientTypeDetails -ne 'DisabledUser'" | Where { $_.UserPrincipalName })) {
+        $HTMLROWS_USERS += "`n<option value=`"$($Item.UserPrincipalName)`">$($Item.UserPrincipalName)</option>"
+    }
+
+    $HTMLROWS_AD = ""
+    foreach ($Item in (Get-AcceptedDomain)) {
+        if ($Item.Default) {
+            $HTMLROWS_AD += "`n<option selected value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+        }
+        else {
+            $HTMLROWS_AD += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+        }
+    }
+
+    $HTMLROWS_RRA = ""
+    foreach ($Item in (Get-AcceptedDomain)) {
+        if ($Item.DomainName -like "*.mail.onmicrosoft.com") {
+            $HTMLROWS_RRA += "`n<option selected value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+        }
+        else {
+            $HTMLROWS_RRA += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+        }
+    }
+
+    $HTMLROWS_MBX = ""
+    foreach ($Item in (Get-RemoteMailbox | Select DisplayName, PrimarySMTPAddress, RecipientTypeDetails, WhenChanged)) {
+        $HTMLROWS_MBX += "
+        <tr>
+        <th scope=`"row`">
+        <a href=`"/editremotemailbox?id=$($Item.PrimarySMTPAddress)`">$($Item.DisplayName)</a></th>
+        <td>$($Item.PrimarySMTPAddress)</td>
+        <td>$($Item.RecipientTypeDetails)</td>
+        <td>$($Item.WhenChanged)</td>
+        </tr>";
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\remotemailboxes.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_mbx} -->", $HTMLROWS_MBX)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_ad} -->", $HTMLROWS_AD)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_user} -->", $HTMLROWS_USERS)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row_rra} -->", $HTMLROWS_RRA)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
 # Starting the powershell webserver
 "$(Get-Date -Format s) Starting Exchange Recipient Admin Webserver at: $($BINDING)"
 $LISTENER = New-Object System.Net.HttpListener
@@ -233,9 +286,10 @@ try {
                     $params[$key] = [System.Web.HttpUtility]::UrlDecode($value)
                 }
 
-                # "id" is set by the alias/hidden mini-forms; the main properties
-                # form has no id field and keys off PrimarySmtpAddress instead.
+                # "id" is set by the alias/hidden/disable mini-forms; the main
+                # properties form has no id field and keys off PrimarySmtpAddress.
                 $Identity = if ($params.ContainsKey('id')) { $params['id'] } else { $params['PrimarySmtpAddress'] }
+                $Disabled = $false
 
                 try {
                     switch ($params['Action']) {
@@ -256,6 +310,24 @@ try {
                             $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Set 'Hidden from address lists' to $NewHidden")
                             break
                         }
+                        "disable" {
+                            # Require the confirmation text to match the mailbox's actual
+                            # PrimarySmtpAddress - checked server-side too, not just via the
+                            # UI's type-to-confirm JS, since that's trivially bypassed.
+                            $MailboxToDisable = Get-RemoteMailbox -Identity $Identity -ErrorAction SilentlyContinue
+                            if (-not $MailboxToDisable) {
+                                $HTML_RESULT = $HTML_WARN.Replace("{result}", "Remote mailbox '$($Identity)' not found")
+                            }
+                            elseif ($params['confirmAddress'] -ne $MailboxToDisable.PrimarySmtpAddress) {
+                                $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $($MailboxToDisable.PrimarySmtpAddress) - no changes were made")
+                            }
+                            else {
+                                Disable-RemoteMailbox -Identity $Identity -Confirm:$false
+                                $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox for $($MailboxToDisable.PrimarySmtpAddress) has been disabled")
+                                $Disabled = $true
+                            }
+                            break
+                        }
                         default {
                             Set-RemoteMailbox -Identity $Identity -DisplayName $params['DisplayName'] -Alias $params['Alias'] -RemoteRoutingAddress $params['RemoteRoutingAddress']
                             $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox updated successfully")
@@ -268,7 +340,14 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = Get-RemoteMailboxEditPage -Identity $Identity -ResultHtml $HTML_RESULT
+                # A disabled mailbox no longer exists to render an edit page for -
+                # send the user back to the list instead.
+                if ($Disabled) {
+                    $HTMLRESPONSE = Get-RemoteMailboxListPage -ResultHtml $HTML_RESULT
+                }
+                else {
+                    $HTMLRESPONSE = Get-RemoteMailboxEditPage -Identity $Identity -ResultHtml $HTML_RESULT
+                }
                 break
             }
 
