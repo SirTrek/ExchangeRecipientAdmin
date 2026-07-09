@@ -232,7 +232,7 @@
     </div>
 
     <script>
-      feather.replace()
+      try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
 
       (function () {
         var expected = "{PrimarySmtpAddress}".trim().toLowerCase();
