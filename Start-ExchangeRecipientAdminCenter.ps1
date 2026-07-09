@@ -151,6 +151,7 @@ try {
 				}
 
 				$Identity = $Table['id']
+				$MailboxDisabled = $false
 
 				# Apply a requested change, if any, before re-reading the mailbox
 				if ($Table.ContainsKey('action')) {
@@ -178,11 +179,73 @@ try {
 								$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote routing address updated to $($Table['newrra'])")
 								break
 							}
+							"disable" {
+								# Require the confirmation text to match the mailbox's actual
+								# PrimarySmtpAddress - checked server-side too, not just via the
+								# UI's type-to-confirm JS, since that's trivially bypassed.
+								$MailboxToDisable = Get-RemoteMailbox -Identity $Identity -ErrorAction SilentlyContinue
+								if (-not $MailboxToDisable) {
+									$HTML_RESULT = $HTML_WARN.Replace("{result}", "Remote mailbox '$($Identity)' not found")
+								}
+								elseif ($Table['confirmAddress'] -ne $MailboxToDisable.PrimarySmtpAddress) {
+									$HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $($MailboxToDisable.PrimarySmtpAddress) - no changes were made")
+								}
+								else {
+									Disable-RemoteMailbox -Identity $Identity -Confirm:$false
+									$HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox for $($MailboxToDisable.PrimarySmtpAddress) has been disabled")
+									$MailboxDisabled = $true
+								}
+								break
+							}
 						}
 					}
 					catch {
 						$HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
 					}
+				}
+
+				# A disabled mailbox no longer exists to render an edit page for -
+				# send the user back to the Remote Mailboxes list instead.
+				if ($MailboxDisabled) {
+					$HTMLROWS_USERS = ""
+					foreach ($Item in (Get-User -Filter "RecipientType -eq 'User' -and RecipientTypeDetails -ne 'DisabledUser'" | Where { $_.UserPrincipalName })) {
+						$HTMLROWS_USERS += "`n<option value=`"$($Item.UserPrincipalName)`">$($Item.UserPrincipalName)</option>"
+					}
+
+					$HTMLROWS_AD = ""
+					foreach ($Item in (Get-AcceptedDomain)) {
+						if ($Item.Default) {
+							$HTMLROWS_AD += "`n<option selected value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+						}
+						else {
+							$HTMLROWS_AD += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+						}
+					}
+
+					$HTMLROWS_RRA = ""
+					foreach ($Item in (Get-AcceptedDomain)) {
+						if ($Item.DomainName -like "*.mail.onmicrosoft.com") {
+							$HTMLROWS_RRA += "`n<option selected value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+						}
+						else {
+							$HTMLROWS_RRA += "`n<option value=`"$($Item.Name)`">$($Item.DomainName)</option>"
+						}
+					}
+
+					$HTMLROWS_MBX = ""
+					foreach ($Item in (Get-RemoteMailbox | Select DisplayName, PrimarySMTPAddress, RecipientTypeDetails, WhenChanged)) {
+						$HTMLROWS_MBX += "
+						<tr>
+						<th scope=`"row`">
+						<a href=`"/editremotemailbox?id=$($Item.PrimarySMTPAddress)`">$($Item.DisplayName)</a></th>
+						<td>$($Item.PrimarySMTPAddress)</td>
+						<td>$($Item.RecipientTypeDetails)</td>
+						<td>$($Item.WhenChanged)</td>
+						</tr>";
+					}
+
+					$HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\remotemailboxes.html").Replace("<!-- {row_mbx} -->", $HTMLROWS_MBX).Replace("<!-- {row_ad} -->", $HTMLROWS_AD).Replace("<!-- {row_user} -->", $HTMLROWS_USERS).Replace("<!-- {row_rra} -->", $HTMLROWS_RRA).Replace("<!-- {result} -->", $HTML_RESULT)
+					break
 				}
 
 				# Look up the mailbox to display

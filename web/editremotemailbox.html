@@ -208,11 +208,54 @@
             </div>
           </div>
 
+          <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">Danger Zone</div>
+            <div class="card-body">
+              <p>Disabling this Remote Mailbox removes its Exchange attributes
+                from Active Directory. It will no longer sync as a Remote
+                Mailbox. The Exchange Online mailbox itself is not deleted by
+                this action.</p>
+              <form method="get" action="/editremotemailbox" id="disableForm">
+                <input type="hidden" name="id" value="{id}">
+                <input type="hidden" name="action" value="disable">
+                <div class="mb-3">
+                  <label for="confirmAddress" class="form-label">Type
+                    <strong>{primarysmtpaddress}</strong> to confirm</label>
+                  <input type="text" class="form-control" id="confirmAddress"
+                    name="confirmAddress" autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn-danger" id="disableButton"
+                  disabled>Disable Remote Mailbox</button>
+              </form>
+            </div>
+          </div>
+
         </main>
       </div>
     </div>
     <script>
-feather.replace()
+try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
+
+(function () {
+  var expected = "{primarysmtpaddress}".trim().toLowerCase();
+  var input = document.getElementById('confirmAddress');
+  var button = document.getElementById('disableButton');
+  var form = document.getElementById('disableForm');
+
+  function matches() {
+    return input.value.trim().toLowerCase() === expected;
+  }
+
+  input.addEventListener('input', function () {
+    button.disabled = !matches();
+  });
+
+  form.addEventListener('submit', function (e) {
+    if (!matches() || !confirm('This will disable the Remote Mailbox for ' + expected + '. Continue?')) {
+      e.preventDefault();
+    }
+  });
+})();
 </script>
   </body>
 </html>
