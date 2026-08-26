@@ -208,7 +208,7 @@ try {
                         $Table.Add($Item.Split("=")[0], $Item.Split("=")[1])
                     }
                     try {
-                        $Result = Enable-RemoteMailbox -Identity $Table['username'] -PrimarySMTPAddress "$($Table['primarysmtpaddress_local'])@$($Table['primarysmtpaddress_accepteddomain'])" -RemoteRoutingAddress "$($Table['remoteroutingaddress_local'])@$($Table['remoteroutingaddress_accepteddomain'])"
+                        $Result = Enable-RemoteMailbox -Identity $Table['username'] -PrimarySMTPAddress "$($Table['primarysmtpaddress_local'])@$($Table['primarysmtpaddress_accepteddomain'])" -RemoteRoutingAddress "$($Table['remoteroutingaddress_local'])@$($Table['remoteroutingaddress_accepteddomain'])" -ErrorAction Stop
                         $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "User $($Table['username']) enabled as Remote Mailbox")
                     }
                     catch {
@@ -340,13 +340,13 @@ try {
                             break
                         }
                         "removealias" {
-                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Remove = $params['alias'] }
+                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Remove = $params['alias'] } -ErrorAction Stop
                             $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Removed alias $($params['alias'])")
                             break
                         }
                         "togglehidden" {
                             $NewHidden = $params['hidden'] -eq 'true'
-                            Set-RemoteMailbox -Identity $Identity -HiddenFromAddressListsEnabled $NewHidden
+                            Set-RemoteMailbox -Identity $Identity -HiddenFromAddressListsEnabled $NewHidden -ErrorAction Stop
                             $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Set 'Hidden from address lists' to $NewHidden")
                             break
                         }
@@ -362,14 +362,14 @@ try {
                                 $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $($MailboxToDisable.PrimarySmtpAddress) - no changes were made")
                             }
                             else {
-                                Disable-RemoteMailbox -Identity $Identity -Confirm:$false
+                                Disable-RemoteMailbox -Identity $Identity -Confirm:$false -ErrorAction Stop
                                 $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox for $($MailboxToDisable.PrimarySmtpAddress) has been disabled")
                                 $Disabled = $true
                             }
                             break
                         }
                         default {
-                            Set-RemoteMailbox -Identity $Identity -DisplayName $params['DisplayName'] -Alias $params['Alias'] -RemoteRoutingAddress $params['RemoteRoutingAddress']
+                            Set-RemoteMailbox -Identity $Identity -DisplayName $params['DisplayName'] -Alias $params['Alias'] -RemoteRoutingAddress $params['RemoteRoutingAddress'] -ErrorAction Stop
                             $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Remote Mailbox updated successfully")
                             # DisplayName/Alias changes don't affect PrimarySmtpAddress, so it still identifies the mailbox below
                             $Identity = $params['PrimarySmtpAddress']
@@ -449,7 +449,7 @@ try {
                 }
 
                 try {
-                    Set-DistributionGroup -Identity $params['PrimarySmtpAddress'] -DisplayName $params['DisplayName'] -Alias $params['Alias']
+                    Set-DistributionGroup -Identity $params['PrimarySmtpAddress'] -DisplayName $params['DisplayName'] -Alias $params['Alias'] -ErrorAction Stop
                     $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Distribution Group updated successfully")
                 }
                 catch {
@@ -506,7 +506,7 @@ try {
                 }
 
                 try {
-                    Set-MailContact -Identity $params['PrimarySmtpAddress'] -DisplayName $params['DisplayName'] -ExternalEmailAddress $params['ExternalEmailAddress']
+                    Set-MailContact -Identity $params['PrimarySmtpAddress'] -DisplayName $params['DisplayName'] -ExternalEmailAddress $params['ExternalEmailAddress'] -ErrorAction Stop
                     $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Contact updated successfully")
                 }
                 catch {
@@ -563,7 +563,7 @@ try {
                 }
 
                 try {
-                    Set-EmailAddressPolicy -Identity $params['Name'] -Priority $params['Priority'] -RecipientFilter $params['RecipientFilter']
+                    Set-EmailAddressPolicy -Identity $params['Name'] -Priority $params['Priority'] -RecipientFilter $params['RecipientFilter'] -ErrorAction Stop
                     $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email Address Policy updated successfully")
                 }
                 catch {
@@ -620,7 +620,7 @@ try {
                 }
 
                 try {
-                    Set-AcceptedDomain -Identity $params['Name'] -DomainName $params['DomainName'] -DomainType $params['DomainType']
+                    Set-AcceptedDomain -Identity $params['Name'] -DomainName $params['DomainName'] -DomainType $params['DomainType'] -ErrorAction Stop
                     $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain updated successfully")
                 }
                 catch {
@@ -661,7 +661,7 @@ try {
                 }
 
                 try {
-                    New-AcceptedDomain -Name $params['domainName'] -DomainName $params['domainName'] -DomainType $params['domainType']
+                    New-AcceptedDomain -Name $params['domainName'] -DomainName $params['domainName'] -DomainType $params['domainType'] -ErrorAction Stop
                     $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain $($params['domainName']) added successfully")
                 }
                 catch {
