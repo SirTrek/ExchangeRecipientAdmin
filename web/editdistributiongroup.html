@@ -124,10 +124,32 @@
               </form>
             </div>
           </div>
+
+          <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">Danger Zone</div>
+            <div class="card-body">
+              <p>Deleting this group removes the group object from Active Directory entirely - not just its email address. If this is a mail-enabled <strong>security</strong> group, any permissions or access granted through it are lost as well. Mail sent to the address will bounce. This cannot be undone from here.</p>
+              <form method="post" action="/deletedistributiongroup"
+                data-expect="{PrimarySmtpAddress}"
+                data-confirm-message="Delete the group {PrimarySmtpAddress}? This removes the AD group entirely and cannot be undone.">
+                <input type="hidden" name="id" value="{PrimarySmtpAddress}">
+                <div class="mb-3">
+                  <label for="confirmDelete" class="form-label">Type
+                    <strong>{PrimarySmtpAddress}</strong> to confirm</label>
+                  <input type="text" class="form-control" id="confirmDelete"
+                    name="confirmText" autocomplete="off" data-confirm-input>
+                </div>
+                <button type="submit" class="btn btn-danger" data-confirm-button
+                  disabled>Delete Distribution Group</button>
+              </form>
+            </div>
+          </div>
+
         </main>
       </div>
     </div>
 
+    <script src="danger-zone.js"></script>
     <script>
       try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
     </script>

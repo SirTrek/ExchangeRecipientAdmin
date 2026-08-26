@@ -841,6 +841,88 @@ try {
                 break
             }
 
+            "POST /deletecontact" {
+                # Danger Zone on editcontact.html. The typed confirmation is re-checked
+                # here, not just in the browser, since client-side guards are bypassable.
+                $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
+                $Identity = $params['id']
+
+                try {
+                    $Target = Get-MailContact -Identity $Identity -ErrorAction SilentlyContinue
+                    if (-not $Target) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Contact '$(ConvertTo-SafeHtml $Identity)' not found - nothing was deleted")
+                    }
+                    elseif ($params['confirmText'] -ne [string]$Target.PrimarySmtpAddress) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) - nothing was deleted")
+                    }
+                    else {
+                        Remove-MailContact -Identity $Identity -Confirm:$false -ErrorAction Stop
+                        $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Contact $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) deleted")
+                    }
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))
+                }
+
+                $HTMLRESPONSE = Get-ContactsListPage -ResultHtml $HTML_RESULT
+                break
+            }
+
+            "POST /deletedistributiongroup" {
+                # Danger Zone on editdistributiongroup.html. Remove-DistributionGroup
+                # deletes the AD group object outright, so the confirmation is verified
+                # server-side before anything is touched.
+                $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
+                $Identity = $params['id']
+
+                try {
+                    $Target = Get-DistributionGroup -Identity $Identity -ErrorAction SilentlyContinue
+                    if (-not $Target) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Distribution group '$(ConvertTo-SafeHtml $Identity)' not found - nothing was deleted")
+                    }
+                    elseif ($params['confirmText'] -ne [string]$Target.PrimarySmtpAddress) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) - nothing was deleted")
+                    }
+                    else {
+                        Remove-DistributionGroup -Identity $Identity -Confirm:$false -ErrorAction Stop
+                        $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Distribution group $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) deleted")
+                    }
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))
+                }
+
+                $HTMLRESPONSE = Get-DistributionGroupsListPage -ResultHtml $HTML_RESULT
+                break
+            }
+
+            "POST /deleteemailaddresspolicy" {
+                # Danger Zone on editemailaddresspolicy.html. Keyed on Name, which is
+                # what identifies a policy.
+                $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
+                $Identity = $params['id']
+
+                try {
+                    $Target = Get-EmailAddressPolicy -Identity $Identity -ErrorAction SilentlyContinue
+                    if (-not $Target) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Email address policy '$(ConvertTo-SafeHtml $Identity)' not found - nothing was deleted")
+                    }
+                    elseif ($params['confirmText'] -ne [string]$Target.Name) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $(ConvertTo-SafeHtml $Target.Name) - nothing was deleted")
+                    }
+                    else {
+                        Remove-EmailAddressPolicy -Identity $Identity -Confirm:$false -ErrorAction Stop
+                        $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email address policy $(ConvertTo-SafeHtml $Target.Name) deleted")
+                    }
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))
+                }
+
+                $HTMLRESPONSE = Get-EmailAddressPoliciesListPage -ResultHtml $HTML_RESULT
+                break
+            }
+
             "POST /adddistributiongroup" {
                 # "Add a Group" modal on distributiongroups.html. The form has always
                 # posted here; the route never existed, so every submission 404'd and

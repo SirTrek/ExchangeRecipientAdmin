@@ -217,17 +217,18 @@
                 Mailbox. The Exchange Online mailbox itself is not deleted by
                 this action.</p>
               <form method="post" action="/editremotemailbox" id="disableForm"
-                data-expect="{PrimarySmtpAddress}">
+                data-expect="{PrimarySmtpAddress}"
+                data-confirm-message="This will disable the Remote Mailbox for {PrimarySmtpAddress}. Continue?">
                 <input type="hidden" name="id" value="{id}">
                 <input type="hidden" name="Action" value="disable">
                 <div class="mb-3">
                   <label for="confirmAddress" class="form-label">Type
                     <strong>{PrimarySmtpAddress}</strong> to confirm</label>
                   <input type="text" class="form-control" id="confirmAddress"
-                    name="confirmAddress" autocomplete="off">
+                    name="confirmAddress" autocomplete="off" data-confirm-input>
                 </div>
                 <button type="submit" class="btn btn-danger" id="disableButton"
-                  disabled>Disable Remote Mailbox</button>
+                  data-confirm-button disabled>Disable Remote Mailbox</button>
               </form>
             </div>
           </div>
@@ -237,35 +238,9 @@
     </div>
 
     <script src="table-tools.js"></script>
+    <script src="danger-zone.js"></script>
     <script>
       try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
-
-      (function () {
-        var form = document.getElementById('disableForm');
-        var input = document.getElementById('confirmAddress');
-        var button = document.getElementById('disableButton');
-        if (!form || !input || !button) { return; }
-
-        // Read the address from a data- attribute rather than interpolating it into
-        // this script. A quote in the value used to be a syntax error that killed the
-        // whole block, permanently disabling the button; and entities inside <script>
-        // are not decoded by the browser, so an encoded value would never compare equal.
-        var expected = (form.dataset.expect || '').trim().toLowerCase();
-
-        function matches() {
-          return input.value.trim().toLowerCase() === expected;
-        }
-
-        input.addEventListener('input', function () {
-          button.disabled = !matches();
-        });
-
-        form.addEventListener('submit', function (e) {
-          if (!matches() || !confirm('This will disable the Remote Mailbox for ' + expected + '. Continue?')) {
-            e.preventDefault();
-          }
-        });
-      })();
     </script>
   </body>
 </html>

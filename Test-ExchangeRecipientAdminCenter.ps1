@@ -54,18 +54,25 @@ $prelude = {
     function Get-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
         [pscustomobject]@{DisplayName=$DN;Alias="dl";PrimarySmtpAddress=$SMTP;RecipientTypeDetails="MailUniversalDistributionGroup";WhenCreated="2026-01-01"}}
     function Set-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
+    function Remove-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "group:$Identity" }
     function New-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Enable-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Get-Group {param([Parameter(ValueFromRemainingArguments)]$a)
         [pscustomobject]@{Name="Plain AD Group";DistinguishedName="CN=x";WindowsEmailAddress=$null}}
     function Get-MailContact {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        if ($Identity -and $Identity -notlike "*contoso.com*") { return $null }
         [pscustomobject]@{DisplayName=$DN;PrimarySmtpAddress=$SMTP;RecipientType="MailContact";ExternalEmailAddress="x@y.com"}}
     function Set-MailContact {param([Parameter(ValueFromRemainingArguments)]$a)}
+    function Remove-MailContact {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "contact:$Identity" }
     function New-MailContact {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Get-EmailAddressPolicy {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
         [pscustomobject]@{Name="Default Policy";Priority=1;RecipientFilter="Company -eq 'A&B'"}}
     function Set-EmailAddressPolicy {param([Parameter(ValueFromRemainingArguments)]$a) throw "SIMULATED-FAILURE"}
     function New-EmailAddressPolicy {param([Parameter(ValueFromRemainingArguments)]$a)}
+    function Remove-EmailAddressPolicy {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "policy:$Identity" }
     . $ScriptPath
 }
 
@@ -158,6 +165,44 @@ foreach($u in @("/../Start-ExchangeRecipientAdminCenter.ps1","/%2e%2e/Start-Exch
 }
 $x = Req GET "/accepteddomains"
 Check "server alive after the whole battery" ($x.Status -eq 200) "status=$($x.Status)"
+
+"`n=== 10. Delete: guarded, server-verified, and actually performed ==="
+$delLog = Join-Path $env:TEMP "erac_deletes_test.txt"
+if (Test-Path $delLog) { Remove-Item $delLog -Force }
+
+# every edit page must offer a delete behind a type-to-confirm guard
+foreach($pg in @(
+  @{u="/editcontact?id=o%27brien%40contoso.com";        a="/deletecontact"},
+  @{u="/editdistributiongroup?id=o%27brien%40contoso.com"; a="/deletedistributiongroup"},
+  @{u="/editemailaddresspolicy?id=Default%20Policy";    a="/deleteemailaddresspolicy"})){
+  $x = Req GET $pg.u
+  Check "delete form present on $($pg.u.Split('?')[0])" ($x.Body -match [regex]::Escape('action="' + $pg.a + '"')) "form missing"
+  Check "  guarded by type-to-confirm + disabled button" ($x.Body -match 'data-expect="' -and $x.Body -match 'data-confirm-button') "guard attributes missing"
+}
+
+# a WRONG confirmation must delete nothing
+Req POST "/deletecontact" "id=o%27brien%40contoso.com&confirmText=not-the-address" | Out-Null
+Req POST "/deletedistributiongroup" "id=o%27brien%40contoso.com&confirmText=wrong" | Out-Null
+Req POST "/deleteemailaddresspolicy" "id=Default+Policy&confirmText=wrong" | Out-Null
+Start-Sleep -Milliseconds 200
+Check "wrong confirmation deletes nothing" (-not (Test-Path $delLog)) "a Remove-* cmdlet ran: $(Get-Content $delLog -EA SilentlyContinue)"
+$x = Req POST "/deletecontact" "id=o%27brien%40contoso.com&confirmText=not-the-address"
+Check "wrong confirmation explains itself" ($x.Body -match "didn&#39;t match|didn't match") "no explanatory banner"
+
+# the CORRECT confirmation must actually delete
+Req POST "/deletecontact" "id=o%27brien%40contoso.com&confirmText=o%27brien%40contoso.com" | Out-Null
+Req POST "/deletedistributiongroup" "id=o%27brien%40contoso.com&confirmText=o%27brien%40contoso.com" | Out-Null
+Req POST "/deleteemailaddresspolicy" "id=Default+Policy&confirmText=Default+Policy" | Out-Null
+Start-Sleep -Milliseconds 200
+$done = @(Get-Content $delLog -EA SilentlyContinue)
+Check "correct confirmation deletes the contact" ($done -contains "contact:o'brien@contoso.com") "log=$($done -join ',')"
+Check "correct confirmation deletes the group"   ($done -contains "group:o'brien@contoso.com")   "log=$($done -join ',')"
+Check "correct confirmation deletes the policy"  ($done -contains "policy:Default Policy")       "log=$($done -join ',')"
+if (Test-Path $delLog) { Remove-Item $delLog -Force }
+
+# deleting an object that is already gone must not explode
+$x = Req POST "/deletecontact" "id=ghost%40nowhere.com&confirmText=ghost%40nowhere.com"
+Check "deleting a missing object degrades gracefully" ($x.Status -eq 200 -and $x.Body -match 'not found') "status=$($x.Status)"
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}
