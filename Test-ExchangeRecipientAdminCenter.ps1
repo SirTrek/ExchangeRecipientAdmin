@@ -56,6 +56,8 @@ $prelude = {
     function Set-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Remove-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "group:$Identity" }
+    function Disable-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "disablegroup:$Identity" }
     function New-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Enable-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
     function Get-Group {param([Parameter(ValueFromRemainingArguments)]$a)
@@ -203,6 +205,27 @@ if (Test-Path $delLog) { Remove-Item $delLog -Force }
 # deleting an object that is already gone must not explode
 $x = Req POST "/deletecontact" "id=ghost%40nowhere.com&confirmText=ghost%40nowhere.com"
 Check "deleting a missing object degrades gracefully" ($x.Status -eq 200 -and $x.Body -match 'not found') "status=$($x.Status)"
+
+"`n=== 11. Mail-disable a group: distinct from delete, and reversible ==="
+$delLog = Join-Path $env:TEMP "erac_deletes_test.txt"
+if (Test-Path $delLog) { Remove-Item $delLog -Force }
+
+$x = Req GET "/editdistributiongroup?id=o%27brien%40contoso.com"
+Check "mail-disable form offered alongside delete" ($x.Body -match [regex]::Escape('action="/disabledistributiongroup"') -and $x.Body -match [regex]::Escape('action="/deletedistributiongroup"')) "one of the two forms is missing"
+Check "the two actions are visually distinguished" ($x.Body -match 'border-warning' -and $x.Body -match 'border-danger') "cards not differentiated"
+Check "mail-disable is described as reversible" ($x.Body -match 'Mail-Enable a Group') "reversibility not explained"
+
+Req POST "/disabledistributiongroup" "id=o%27brien%40contoso.com&confirmText=wrong" | Out-Null
+Start-Sleep -Milliseconds 200
+Check "wrong confirmation mail-disables nothing" (-not (Test-Path $delLog)) "cmdlet ran: $(Get-Content $delLog -EA SilentlyContinue)"
+
+$x = Req POST "/disabledistributiongroup" "id=o%27brien%40contoso.com&confirmText=o%27brien%40contoso.com"
+Start-Sleep -Milliseconds 200
+$done = @(Get-Content $delLog -EA SilentlyContinue)
+Check "correct confirmation mail-disables the group" ($done -contains "disablegroup:o'brien@contoso.com") "log=$($done -join ',')"
+Check "mail-disable did NOT delete the AD group" ($done -notcontains "group:o'brien@contoso.com") "Remove-DistributionGroup was also called"
+Check "result explains the AD group was kept" ($x.Body -match 'kept') "no reassurance in the banner"
+if (Test-Path $delLog) { Remove-Item $delLog -Force }
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}

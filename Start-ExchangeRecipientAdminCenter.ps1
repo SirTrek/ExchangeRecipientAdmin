@@ -868,6 +868,35 @@ try {
                 break
             }
 
+            "POST /disabledistributiongroup" {
+                # Mail-disable: strips the Exchange attributes but keeps the AD group,
+                # its membership and anything it grants access to. The reversible
+                # counterpart to /deletedistributiongroup - the group can be mail-enabled
+                # again from the Mail-Enable a Group modal.
+                $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
+                $Identity = $params['id']
+
+                try {
+                    $Target = Get-DistributionGroup -Identity $Identity -ErrorAction SilentlyContinue
+                    if (-not $Target) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Distribution group '$(ConvertTo-SafeHtml $Identity)' not found - nothing was changed")
+                    }
+                    elseif ($params['confirmText'] -ne [string]$Target.PrimarySmtpAddress) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Confirmation text didn't match $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) - nothing was changed")
+                    }
+                    else {
+                        Disable-DistributionGroup -Identity $Identity -Confirm:$false -ErrorAction Stop
+                        $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Distribution group $(ConvertTo-SafeHtml $Target.PrimarySmtpAddress) mail-disabled. The Active Directory group was kept and can be mail-enabled again from Mail-Enable a Group.")
+                    }
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))
+                }
+
+                $HTMLRESPONSE = Get-DistributionGroupsListPage -ResultHtml $HTML_RESULT
+                break
+            }
+
             "POST /deletedistributiongroup" {
                 # Danger Zone on editdistributiongroup.html. Remove-DistributionGroup
                 # deletes the AD group object outright, so the confirmation is verified
