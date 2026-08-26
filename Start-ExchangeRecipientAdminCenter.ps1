@@ -294,9 +294,49 @@ try {
                 try {
                     switch ($params['Action']) {
                         "addalias" {
-                            $NewAlias = "$($params['alias_local'])@$($params['alias_accepteddomain'])"
-                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Add = $NewAlias }
-                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Added alias $NewAlias")
+                            # Exchange requires an explicit prefix on proxy addresses. Without
+                            # one, Set-RemoteMailbox raises a non-terminating error and the
+                            # address is silently not added, so accept the prefix if the
+                            # operator typed it and supply "smtp:" if they didn't.
+                            $AliasInput = "$($params['alias_local'])".Trim()
+                            if (-not $AliasInput) {
+                                $HTML_RESULT = $HTML_WARN.Replace("{result}", "Alias cannot be empty")
+                                break
+                            }
+
+                            # Peel off any prefix so the address can be validated, keeping the
+                            # operator's casing: lower-case "smtp:" is an alias, upper-case
+                            # "SMTP:" makes it the primary reply address.
+                            $Prefix = ''
+                            if ($AliasInput -match '^(?<p>smtp):(?<rest>.*)$') {
+                                $Prefix     = $Matches['p']
+                                $AliasInput = $Matches['rest'].Trim()
+                            }
+
+                            # A full address typed into the local-part box wins over the
+                            # domain picker, rather than being concatenated into nonsense.
+                            $UsedPicker = ($AliasInput -notlike '*@*')
+                            $Address = if ($UsedPicker) {
+                                "$AliasInput@$($params['alias_accepteddomain'])"
+                            } else {
+                                $AliasInput
+                            }
+
+                            if ($Address -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+                                $HTML_RESULT = $HTML_WARN.Replace("{result}", "'$Address' is not a valid email address")
+                                break
+                            }
+
+                            if (-not $Prefix) { $Prefix = 'smtp' }
+                            $NewAlias = "${Prefix}:$Address"
+
+                            # -ErrorAction Stop so a failure reaches the catch below instead of
+                            # falling through to the success message.
+                            Set-RemoteMailbox -Identity $Identity -EmailAddresses @{Add = $NewAlias } -ErrorAction Stop
+
+                            $AddedAs = if ($Prefix -ceq 'SMTP') { "primary address" } else { "alias" }
+                            $PickerNote = if ($UsedPicker) { "" } else { " (domain taken from the address you typed)" }
+                            $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Added $AddedAs $Address$PickerNote")
                             break
                         }
                         "removealias" {
