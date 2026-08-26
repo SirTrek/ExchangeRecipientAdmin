@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content>
+    <meta name="author" content="Steve Goodman">
+    <title>Exchange Recipient Admin Center - Edit Accepted Domain</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+      rel="stylesheet">
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link href="dashboard.css" rel="stylesheet">
+  </head>
+  <body>
+    <header
+      class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+      <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3" href="#">Exchange
+        Recipient Admin Center</a>
+      <button class="navbar-toggler position-absolute d-md-none collapsed"
+        type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu"
+        aria-controls="sidebarMenu" aria-expanded="false"
+        aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="navbar-nav">
+        <div class="nav-item text-nowrap">
+          <a class="nav-link px-3" href="/exit">Exit</a>
+        </div>
+      </div>
+    </header>
+
+    <div class="container-fluid">
+      <div class="row">
+        <nav id="sidebarMenu"
+          class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+          <div class="position-sticky pt-3">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a class="nav-link" aria-current="page" href="/">
+                  <span data-feather="home"></span>
+                  Dashboard
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="/remotemailboxes">
+                  <span data-feather="user"></span>
+                  Remote Mailboxes
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="/distributiongroups">
+                  <span data-feather="users"></span>
+                  Distribution Groups
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="/contacts">
+                  <span data-feather="mail"></span>
+                  Contacts
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="/emailaddresspolicies">
+                  <span data-feather="list"></span>
+                  Email Address Policies
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link active" href="/accepteddomains">
+                  <span data-feather="layers"></span>
+                  Accepted Domains
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="https://admin.exchange.microsoft.com/"
+                  target="_blank">
+                  <span data-feather="external-link"></span>
+                  Exchange Admin Center
+                </a>
+              </li>
+            </ul>
+          </div>
+        </nav>
+
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+          <div
+            class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h2 class="h2">Edit Accepted Domain</h2>
+            <a class="btn btn-outline-secondary btn-sm" href="/accepteddomains">Back to Accepted Domains</a>
+          </div>
+
+          <!-- {result} -->
+
+          <div class="card mb-4">
+            <div class="card-header">Properties</div>
+            <div class="card-body">
+              <form method="post" action="/editaccepteddomain">
+                <input type="hidden" name="Name" value="{Name}">
+                <div class="mb-3">
+                  <label for="Name" class="form-label">Name</label>
+                  <input type="text" class="form-control" id="NameDisplay"
+                    value="{Name}" disabled>
+                  <div class="form-text">The identifying name can't be changed
+                    from here.</div>
+                </div>
+                <div class="mb-3">
+                  <label for="DomainName" class="form-label">Accepted
+                    Domain</label>
+                  <input type="text" class="form-control" id="DomainName"
+                    name="DomainName" value="{DomainName}">
+                </div>
+                <div class="mb-3">
+                  <label for="DomainType" class="form-label">Domain
+                    Type</label>
+                  <select class="form-select" id="DomainType" name="DomainType">
+                    <!-- {domaintype_options} -->
+                  </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Update
+                  Accepted Domain</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">Danger Zone</div>
+            <div class="card-body">
+              <p>Deleting this Accepted Domain removes it from the
+                organization's accepted domain list. Mail flow depending on
+                this domain will stop working. This cannot be undone from
+                here.</p>
+              <form method="post" action="/deleteaccepteddomain"
+                onsubmit="return confirm('Delete accepted domain {DomainName}? This cannot be undone from here.')">
+                <input type="hidden" name="name" value="{Name}">
+                <button type="submit" class="btn btn-danger">Delete Accepted
+                  Domain</button>
+              </form>
+            </div>
+          </div>
+
+        </main>
+      </div>
+    </div>
+
+    <script>
+      try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
+    </script>
+  </body>
+</html>

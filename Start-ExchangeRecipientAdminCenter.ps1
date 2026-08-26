@@ -195,6 +195,38 @@ function Get-AcceptedDomainsListPage {
     return $HTMLRESPONSE
 }
 
+function Get-AcceptedDomainEditPage {
+    # Renders editaccepteddomain.html for a given domain identity. Shared by
+    # the GET (initial view) and POST (after an update) handlers below.
+    param(
+        [Parameter(Mandatory)][string]$Identity,
+        [string]$ResultHtml = ""
+    )
+
+    $Domain = Get-AcceptedDomain -Identity $Identity -ErrorAction SilentlyContinue
+
+    if (-not $Domain) {
+        return "<!doctype html><html><body>Accepted domain '$($Identity)' not found</body></html>"
+    }
+
+    $HTMLOPTIONS_TYPE = ""
+    foreach ($Type in @("Authoritative", "InternalRelay", "ExternalRelay")) {
+        if ($Type -eq $Domain.DomainType.ToString()) {
+            $HTMLOPTIONS_TYPE += "`n<option selected value=`"$Type`">$Type</option>"
+        }
+        else {
+            $HTMLOPTIONS_TYPE += "`n<option value=`"$Type`">$Type</option>"
+        }
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editaccepteddomain.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Name}", $Domain.Name)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DomainName}", $Domain.DomainName)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {domaintype_options} -->", $HTMLOPTIONS_TYPE)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
 # Starting the powershell webserver
 "$(Get-Date -Format s) Starting Exchange Recipient Admin Webserver at: $($BINDING)"
 $LISTENER = New-Object System.Net.HttpListener
@@ -613,13 +645,8 @@ try {
 
             "GET /editaccepteddomain" {
                 # Edit Accepted Domain Section
-                $id = $REQUEST.Url.Query.Split("=")[1]
-                $domain = Get-AcceptedDomain -Identity $id
-                
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\editaccepteddomain.html")
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Name}", $domain.Name)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DomainName}", $domain.DomainName)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DomainType}", $domain.DomainType)
+                $id = [URI]::UnescapeDataString($REQUEST.Url.Query.TrimStart('?').Split("=")[1])
+                $HTMLRESPONSE = Get-AcceptedDomainEditPage -Identity $id
                 break
             }
 
@@ -644,7 +671,7 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = Get-AcceptedDomainsListPage -ResultHtml $HTML_RESULT
+                $HTMLRESPONSE = Get-AcceptedDomainEditPage -Identity $params['Name'] -ResultHtml $HTML_RESULT
                 break
             }
 
