@@ -164,6 +164,37 @@ function Get-RemoteMailboxListPage {
     return $HTMLRESPONSE
 }
 
+function Get-AcceptedDomainsListPage {
+    # Renders accepteddomains.html. Shared by GET /accepteddomains and every
+    # mutating POST handler (add/edit/delete) so the row list - including the
+    # per-row Delete button - isn't rebuilt separately at each call site.
+    param(
+        [string]$ResultHtml = ""
+    )
+
+    $HTMLROWS = ""
+    foreach ($Item in (Get-AcceptedDomain)) {
+        $HTMLROWS += "
+        <tr>
+        <th scope=`"row`">
+        <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
+        <td>$($Item.DomainName)</td>
+        <td>$($Item.DomainType)</td>
+        <td>
+        <form method=`"post`" action=`"/deleteaccepteddomain`" onsubmit=`"return confirm('Delete accepted domain $($Item.DomainName)? This cannot be undone from here.')`">
+        <input type=`"hidden`" name=`"name`" value=`"$($Item.Name)`">
+        <button type=`"submit`" class=`"btn btn-sm btn-outline-danger`">Delete</button>
+        </form>
+        </td>
+        </tr>";
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\accepteddomains.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row} -->", $HTMLROWS)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
 # Starting the powershell webserver
 "$(Get-Date -Format s) Starting Exchange Recipient Admin Webserver at: $($BINDING)"
 $LISTENER = New-Object System.Net.HttpListener
@@ -574,23 +605,9 @@ try {
                 break
             }
 
-            "GET /accepteddomains" { 
+            "GET /accepteddomains" {
                 # Accepted Domains section
-
-                # Prepare list of accepted domains
-                $HTMLROWS = ""
-                foreach ($Item in (Get-AcceptedDomain)) {
-                    $HTMLROWS += "
-                    <tr>
-                    <th scope=`"row`">
-                    <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
-                    <td>$($Item.DomainName)</td>
-                    <td>$($Item.DomainType)</td>
-                    </tr>";
-                }
-
-                # Create response and replace template placeholders
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {row} -->", $HTMLROWS)
+                $HTMLRESPONSE = Get-AcceptedDomainsListPage
                 break
             }
 
@@ -627,20 +644,7 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                # Rebuild the domain list - without this the row placeholder is
-                # left unreplaced and the table renders empty after an edit.
-                $HTMLROWS = ""
-                foreach ($Item in (Get-AcceptedDomain)) {
-                    $HTMLROWS += "
-                    <tr>
-                    <th scope=`"row`">
-                    <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
-                    <td>$($Item.DomainName)</td>
-                    <td>$($Item.DomainType)</td>
-                    </tr>";
-                }
-
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {row} -->", $HTMLROWS).Replace("<!-- {result} -->", $HTML_RESULT)
+                $HTMLRESPONSE = Get-AcceptedDomainsListPage -ResultHtml $HTML_RESULT
                 break
             }
 
@@ -668,18 +672,33 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLROWS = ""
-                foreach ($Item in (Get-AcceptedDomain)) {
-                    $HTMLROWS += "
-                    <tr>
-                    <th scope=`"row`">
-                    <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
-                    <td>$($Item.DomainName)</td>
-                    <td>$($Item.DomainType)</td>
-                    </tr>";
+                $HTMLRESPONSE = Get-AcceptedDomainsListPage -ResultHtml $HTML_RESULT
+                break
+            }
+
+            "POST /deleteaccepteddomain" {
+                # Process Delete Accepted Domain - one Delete button per row on
+                # accepteddomains.html, guarded by a JS confirm() dialog.
+                $reader = New-Object System.IO.StreamReader($REQUEST.InputStream, $REQUEST.ContentEncoding)
+                $data = $reader.ReadToEnd()
+                $reader.Close()
+                $REQUEST.InputStream.Close()
+
+                $params = @{}
+                $data.Split('&') | ForEach-Object {
+                    $key, $value = $_.Split('=')
+                    $params[$key] = [System.Web.HttpUtility]::UrlDecode($value)
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {row} -->", $HTMLROWS).Replace("<!-- {result} -->", $HTML_RESULT)
+                try {
+                    Remove-AcceptedDomain -Identity $params['name'] -Confirm:$false -ErrorAction Stop
+                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain $($params['name']) deleted")
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
+                }
+
+                $HTMLRESPONSE = Get-AcceptedDomainsListPage -ResultHtml $HTML_RESULT
                 break
             }
 
