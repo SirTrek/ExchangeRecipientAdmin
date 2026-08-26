@@ -14,6 +14,7 @@
     <script
       src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
     <link href="dashboard.css" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
   </head>
   <body>
     <header
@@ -104,11 +105,14 @@
                   <input type="text" class="form-control" id="DisplayName"
                     name="DisplayName" value="{DisplayName}">
                 </div>
+                <input type="hidden" name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
                 <div class="mb-3">
-                  <label for="PrimarySmtpAddress" class="form-label">Primary SMTP
+                  <label for="PrimarySmtpAddressDisplay" class="form-label">Primary SMTP
                     Address</label>
-                  <input type="email" class="form-control" id="PrimarySmtpAddress"
-                    name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
+                  <input type="email" class="form-control"
+                    id="PrimarySmtpAddressDisplay" value="{PrimarySmtpAddress}" disabled>
+                  <div class="form-text">This address identifies the object and can't be
+                    changed from here.</div>
                 </div>
                 <div class="mb-3">
                   <label for="Alias" class="form-label">Alias</label>
@@ -212,7 +216,8 @@
                 from Active Directory. It will no longer sync as a Remote
                 Mailbox. The Exchange Online mailbox itself is not deleted by
                 this action.</p>
-              <form method="post" action="/editremotemailbox" id="disableForm">
+              <form method="post" action="/editremotemailbox" id="disableForm"
+                data-expect="{PrimarySmtpAddress}">
                 <input type="hidden" name="id" value="{id}">
                 <input type="hidden" name="Action" value="disable">
                 <div class="mb-3">
@@ -231,14 +236,21 @@
       </div>
     </div>
 
+    <script src="table-tools.js"></script>
     <script>
       try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
 
       (function () {
-        var expected = "{PrimarySmtpAddress}".trim().toLowerCase();
+        var form = document.getElementById('disableForm');
         var input = document.getElementById('confirmAddress');
         var button = document.getElementById('disableButton');
-        var form = document.getElementById('disableForm');
+        if (!form || !input || !button) { return; }
+
+        // Read the address from a data- attribute rather than interpolating it into
+        // this script. A quote in the value used to be a syntax error that killed the
+        // whole block, permanently disabling the button; and entities inside <script>
+        // are not decoded by the browser, so an encoded value would never compare equal.
+        var expected = (form.dataset.expect || '').trim().toLowerCase();
 
         function matches() {
           return input.value.trim().toLowerCase() === expected;

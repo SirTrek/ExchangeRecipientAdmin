@@ -14,6 +14,7 @@
     <script
       src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
     <link href="dashboard.css" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
   </head>
   <body>
     <header
@@ -101,7 +102,7 @@
               <form method="post" action="/editaccepteddomain">
                 <input type="hidden" name="Name" value="{Name}">
                 <div class="mb-3">
-                  <label for="Name" class="form-label">Name</label>
+                  <label for="NameDisplay" class="form-label">Name</label>
                   <input type="text" class="form-control" id="NameDisplay"
                     value="{Name}" disabled>
                   <div class="form-text">The identifying name can't be changed
@@ -134,7 +135,8 @@
                 this domain will stop working. This cannot be undone from
                 here.</p>
               <form method="post" action="/deleteaccepteddomain"
-                onsubmit="return confirm('Delete accepted domain {DomainName}? This cannot be undone from here.')">
+                data-confirm="Delete accepted domain {DomainName}? This cannot be undone from here."
+                onsubmit="return confirm(this.dataset.confirm)">
                 <input type="hidden" name="name" value="{Name}">
                 <button type="submit" class="btn btn-danger">Delete Accepted
                   Domain</button>

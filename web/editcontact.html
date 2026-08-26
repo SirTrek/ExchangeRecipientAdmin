@@ -14,6 +14,7 @@
     <script
       src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
     <link href="dashboard.css" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
   </head>
   <body>
     <header
@@ -104,11 +105,14 @@
                   <input type="text" class="form-control" id="DisplayName"
                     name="DisplayName" value="{DisplayName}">
                 </div>
+                <input type="hidden" name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
                 <div class="mb-3">
-                  <label for="PrimarySmtpAddress" class="form-label">Primary SMTP
+                  <label for="PrimarySmtpAddressDisplay" class="form-label">Primary SMTP
                     Address</label>
-                  <input type="email" class="form-control" id="PrimarySmtpAddress"
-                    name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
+                  <input type="email" class="form-control"
+                    id="PrimarySmtpAddressDisplay" value="{PrimarySmtpAddress}" disabled>
+                  <div class="form-text">This address identifies the object and can't be
+                    changed from here.</div>
                 </div>
                 <div class="mb-3">
                   <label for="ExternalEmailAddress" class="form-label">External
