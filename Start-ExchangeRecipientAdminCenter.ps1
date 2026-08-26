@@ -587,11 +587,63 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {result} -->", $HTML_RESULT)
+                # Rebuild the domain list - without this the row placeholder is
+                # left unreplaced and the table renders empty after an edit.
+                $HTMLROWS = ""
+                foreach ($Item in (Get-AcceptedDomain)) {
+                    $HTMLROWS += "
+                    <tr>
+                    <th scope=`"row`">
+                    <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
+                    <td>$($Item.DomainName)</td>
+                    <td>$($Item.DomainType)</td>
+                    </tr>";
+                }
+
+                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {row} -->", $HTMLROWS).Replace("<!-- {result} -->", $HTML_RESULT)
                 break
             }
 
-            "GET /exit" { 
+            "POST /addaccepteddomain" {
+                # Process Add Accepted Domain - the "Add Accepted Domain" modal on
+                # accepteddomains.html posts here, but this route didn't exist
+                # (pre-existing gap, not something Set-AcceptedDomain covers since
+                # this is for a brand new domain, not editing an existing one).
+                $reader = New-Object System.IO.StreamReader($REQUEST.InputStream, $REQUEST.ContentEncoding)
+                $data = $reader.ReadToEnd()
+                $reader.Close()
+                $REQUEST.InputStream.Close()
+
+                $params = @{}
+                $data.Split('&') | ForEach-Object {
+                    $key, $value = $_.Split('=')
+                    $params[$key] = [System.Web.HttpUtility]::UrlDecode($value)
+                }
+
+                try {
+                    New-AcceptedDomain -Name $params['domainName'] -DomainName $params['domainName'] -DomainType $params['domainType']
+                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain $($params['domainName']) added successfully")
+                }
+                catch {
+                    $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
+                }
+
+                $HTMLROWS = ""
+                foreach ($Item in (Get-AcceptedDomain)) {
+                    $HTMLROWS += "
+                    <tr>
+                    <th scope=`"row`">
+                    <a href=`"/editaccepteddomain?id=$($Item.Name)`">$($Item.Name)</a></th>
+                    <td>$($Item.DomainName)</td>
+                    <td>$($Item.DomainType)</td>
+                    </tr>";
+                }
+
+                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\accepteddomains.html").Replace("<!-- {row} -->", $HTMLROWS).Replace("<!-- {result} -->", $HTML_RESULT)
+                break
+            }
+
+            "GET /exit" {
                 # Create response preparing for webserver shutdown
                 $HTMLRESPONSE = "<!doctype html><html><body>Please close the browser window</body></html>"
                 break
