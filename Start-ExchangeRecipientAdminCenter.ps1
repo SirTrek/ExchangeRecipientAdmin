@@ -227,6 +227,72 @@ function Get-AcceptedDomainEditPage {
     return $HTMLRESPONSE
 }
 
+function Get-DistributionGroupEditPage {
+    # Renders editdistributiongroup.html for a given group identity. Shared by
+    # the GET (initial view) and POST (after an update) handlers below.
+    param(
+        [Parameter(Mandatory)][string]$Identity,
+        [string]$ResultHtml = ""
+    )
+
+    $Group = Get-DistributionGroup -Identity $Identity -ErrorAction SilentlyContinue
+
+    if (-not $Group) {
+        return "<!doctype html><html><body>Distribution group '$($Identity)' not found</body></html>"
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editdistributiongroup.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $Group.DisplayName)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $Group.PrimarySmtpAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Alias}", $Group.Alias)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
+function Get-ContactEditPage {
+    # Renders editcontact.html for a given contact identity. Shared by the GET
+    # (initial view) and POST (after an update) handlers below.
+    param(
+        [Parameter(Mandatory)][string]$Identity,
+        [string]$ResultHtml = ""
+    )
+
+    $Contact = Get-MailContact -Identity $Identity -ErrorAction SilentlyContinue
+
+    if (-not $Contact) {
+        return "<!doctype html><html><body>Contact '$($Identity)' not found</body></html>"
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editcontact.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $Contact.DisplayName)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $Contact.PrimarySmtpAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{ExternalEmailAddress}", $Contact.ExternalEmailAddress)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
+function Get-EmailAddressPolicyEditPage {
+    # Renders editemailaddresspolicy.html for a given policy identity. Shared
+    # by the GET (initial view) and POST (after an update) handlers below.
+    param(
+        [Parameter(Mandatory)][string]$Identity,
+        [string]$ResultHtml = ""
+    )
+
+    $Policy = Get-EmailAddressPolicy -Identity $Identity -ErrorAction SilentlyContinue
+
+    if (-not $Policy) {
+        return "<!doctype html><html><body>Email address policy '$($Identity)' not found</body></html>"
+    }
+
+    $HTMLRESPONSE = Get-Content -Path "$($BASEDIR)\editemailaddresspolicy.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Name}", $Policy.Name)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Priority}", $Policy.Priority)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("{RecipientFilter}", $Policy.RecipientFilter)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
+    return $HTMLRESPONSE
+}
+
 # Starting the powershell webserver
 "$(Get-Date -Format s) Starting Exchange Recipient Admin Webserver at: $($BINDING)"
 $LISTENER = New-Object System.Net.HttpListener
@@ -488,13 +554,8 @@ try {
 
             "GET /editdistributiongroup" {
                 # Edit Distribution Group Section
-                $id = $REQUEST.Url.Query.Split("=")[1]
-                $group = Get-DistributionGroup -Identity $id
-                
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\editdistributiongroup.html")
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $group.DisplayName)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $group.PrimarySmtpAddress)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Alias}", $group.Alias)
+                $id = [URI]::UnescapeDataString($REQUEST.Url.Query.TrimStart('?').Split("=")[1])
+                $HTMLRESPONSE = Get-DistributionGroupEditPage -Identity $id
                 break
             }
 
@@ -519,7 +580,7 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\distributiongroups.html").Replace("<!-- {result} -->", $HTML_RESULT)
+                $HTMLRESPONSE = Get-DistributionGroupEditPage -Identity $params['PrimarySmtpAddress'] -ResultHtml $HTML_RESULT
                 break
             }
             
@@ -545,13 +606,8 @@ try {
 
             "GET /editcontact" {
                 # Edit Contact Section
-                $id = $REQUEST.Url.Query.Split("=")[1]
-                $contact = Get-MailContact -Identity $id
-                
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\editcontact.html")
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{DisplayName}", $contact.DisplayName)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{PrimarySmtpAddress}", $contact.PrimarySmtpAddress)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{ExternalEmailAddress}", $contact.ExternalEmailAddress)
+                $id = [URI]::UnescapeDataString($REQUEST.Url.Query.TrimStart('?').Split("=")[1])
+                $HTMLRESPONSE = Get-ContactEditPage -Identity $id
                 break
             }
 
@@ -576,7 +632,7 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\contacts.html").Replace("<!-- {result} -->", $HTML_RESULT)
+                $HTMLRESPONSE = Get-ContactEditPage -Identity $params['PrimarySmtpAddress'] -ResultHtml $HTML_RESULT
                 break
             }
 
@@ -602,13 +658,8 @@ try {
 
             "GET /editemailaddresspolicy" {
                 # Edit Email Address Policy Section
-                $id = $REQUEST.Url.Query.Split("=")[1]
-                $policy = Get-EmailAddressPolicy -Identity $id
-                
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\editemailaddresspolicy.html")
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Name}", $policy.Name)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Priority}", $policy.Priority)
-                $HTMLRESPONSE = $HTMLRESPONSE.Replace("{RecipientFilter}", $policy.RecipientFilter)
+                $id = [URI]::UnescapeDataString($REQUEST.Url.Query.TrimStart('?').Split("=")[1])
+                $HTMLRESPONSE = Get-EmailAddressPolicyEditPage -Identity $id
                 break
             }
 
@@ -633,7 +684,7 @@ try {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", $Error -join "<br />")
                 }
 
-                $HTMLRESPONSE = (Get-Content -Path "$($BASEDIR)\emailaddresspolicies.html").Replace("<!-- {result} -->", $HTML_RESULT)
+                $HTMLRESPONSE = Get-EmailAddressPolicyEditPage -Identity $params['Name'] -ResultHtml $HTML_RESULT
                 break
             }
 

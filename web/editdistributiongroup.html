@@ -90,34 +90,42 @@
           <div
             class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
             <h2 class="h2">Edit Distribution Group</h2>
+            <a class="btn btn-outline-secondary btn-sm" href="/distributiongroups">Back to Distribution Groups</a>
           </div>
 
-          <form method="post" action="/editdistributiongroup">
-            <div class="mb-3">
-              <label for="DisplayName" class="form-label">Display Name</label>
-              <input type="text" class="form-control" id="DisplayName"
-                name="DisplayName" value="{DisplayName}">
+          <!-- {result} -->
+
+          <div class="card mb-4">
+            <div class="card-header">Properties</div>
+            <div class="card-body">
+              <form method="post" action="/editdistributiongroup">
+                <div class="mb-3">
+                  <label for="DisplayName" class="form-label">Display Name</label>
+                  <input type="text" class="form-control" id="DisplayName"
+                    name="DisplayName" value="{DisplayName}">
+                </div>
+                <div class="mb-3">
+                  <label for="PrimarySmtpAddress" class="form-label">Primary SMTP
+                    Address</label>
+                  <input type="email" class="form-control" id="PrimarySmtpAddress"
+                    name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
+                </div>
+                <div class="mb-3">
+                  <label for="Alias" class="form-label">Alias</label>
+                  <input type="text" class="form-control" id="Alias" name="Alias"
+                    value="{Alias}">
+                </div>
+                <button type="submit" class="btn btn-primary">Update
+                  Distribution Group</button>
+              </form>
             </div>
-            <div class="mb-3">
-              <label for="PrimarySmtpAddress" class="form-label">Primary SMTP
-                Address</label>
-              <input type="email" class="form-control" id="PrimarySmtpAddress"
-                name="PrimarySmtpAddress" value="{PrimarySmtpAddress}">
-            </div>
-            <div class="mb-3">
-              <label for="Alias" class="form-label">Alias</label>
-              <input type="text" class="form-control" id="Alias" name="Alias"
-                value="{Alias}">
-            </div>
-            <button type="submit" class="btn btn-primary">Update Distribution
-              Group</button>
-          </form>
+          </div>
         </main>
       </div>
     </div>
 
     <script>
-      feather.replace()
+      try { feather.replace(); } catch (e) { console.warn('feather.replace() failed:', e); }
     </script>
   </body>
 </html>
