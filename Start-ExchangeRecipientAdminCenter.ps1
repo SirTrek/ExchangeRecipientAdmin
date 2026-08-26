@@ -794,8 +794,12 @@ try {
                 $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
 
                 try {
-                    Set-AcceptedDomain -Identity $params['Name'] -DomainName $params['DomainName'] -DomainType $params['DomainType'] -ErrorAction Stop
-                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain updated successfully")
+                    # -DomainName is a New-AcceptedDomain parameter only: the SMTP
+                    # namespace is fixed when the domain is created, and Set-AcceptedDomain
+                    # rejects it outright ("A parameter cannot be found that matches
+                    # parameter name 'DomainName'"), so changing the type failed too.
+                    Set-AcceptedDomain -Identity $params['Name'] -DomainType $params['DomainType'] -ErrorAction Stop
+                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Accepted Domain $(ConvertTo-SafeHtml $params['Name']) set to $(ConvertTo-SafeHtml $params['DomainType'])")
                 }
                 catch {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))

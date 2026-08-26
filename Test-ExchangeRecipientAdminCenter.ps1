@@ -29,52 +29,110 @@ $prelude = {
     $DN   = 'Say "Hi" O''Brien & <b>Sons</b>'
     $SMTP = "o'brien@contoso.com"
 
-    function Get-PSSnapIn {param([Parameter(ValueFromRemainingArguments)]$a) [pscustomobject]@{Name='s'}}
-    function Add-PSSnapIn {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Start-Process {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Get-Random {param([Parameter(ValueFromRemainingArguments)]$a) $Port}
-    function Get-User {param([Parameter(ValueFromRemainingArguments)]$a) [pscustomobject]@{UserPrincipalName="u@x.internal"}}
-    function Get-RemoteMailbox {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+    # ---------------------------------------------------------------------------
+    # Exchange cmdlet stubs.
+    #
+    # These declare the REAL parameter set of each cmdlet and deliberately do NOT use
+    # -ValueFromRemainingArguments, so calling one with a parameter it does not have
+    # fails the way Exchange fails: "A parameter cannot be found that matches parameter
+    # name 'X'". An earlier version of this harness accepted any argument, which let a
+    # Set-AcceptedDomain -DomainName call pass every test and still break in production.
+    #
+    # If a stub and the real cmdlet ever disagree, the stub is what needs fixing.
+    # ---------------------------------------------------------------------------
+
+    function Get-PSSnapIn { [CmdletBinding()] param([string]$Name,[switch]$Registered) [pscustomobject]@{Name='s'} }
+    function Add-PSSnapIn { [CmdletBinding()] param([Parameter(ValueFromRemainingArguments)]$Name) }
+    function Start-Process { [CmdletBinding()] param([string]$FilePath) }
+    function Get-Random { [CmdletBinding()] param([int]$Minimum,[int]$Maximum) $Port }
+
+    function Get-User {
+        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize)
+        [pscustomobject]@{ UserPrincipalName = "u@x.internal" } }
+
+    function Get-RemoteMailbox {
+        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize)
         if ($Identity -and $Identity -notlike "*contoso.com*") { return $null }
-        [pscustomobject]@{Name=$DN;DisplayName=$DN;Alias="ob";PrimarySmtpAddress=$SMTP
+        [pscustomobject]@{ Name=$DN;DisplayName=$DN;Alias="ob";PrimarySmtpAddress=$SMTP
             RemoteRoutingAddress="ob@t.mail.onmicrosoft.com";RecipientTypeDetails="RemoteUserMailbox"
             WhenChanged="2026-08-26";HiddenFromAddressListsEnabled=$false
-            EmailAddresses=@("SMTP:$SMTP","smtp:o'brien.alt@contoso.com")}}
-    function Set-RemoteMailbox {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Enable-RemoteMailbox {param([string]$Identity,[string]$PrimarySMTPAddress,[string]$RemoteRoutingAddress,[Parameter(ValueFromRemainingArguments)]$a)
+            EmailAddresses=@("SMTP:$SMTP","smtp:o'brien.alt@contoso.com") } }
+    function Set-RemoteMailbox {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,$EmailAddresses,
+            [bool]$HiddenFromAddressListsEnabled,[string]$DisplayName,[string]$Alias,
+            [string]$RemoteRoutingAddress,[string]$PrimarySmtpAddress) }
+    function Enable-RemoteMailbox {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,[string]$PrimarySMTPAddress,
+            [string]$RemoteRoutingAddress,[switch]$Archive)
         Set-Content -Path (Join-Path $env:TEMP "erac_enable_test.txt") -Value "$PrimarySMTPAddress" }
-    function Disable-RemoteMailbox {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Get-AcceptedDomain {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+    function Disable-RemoteMailbox {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity) }
+
+    function Get-AcceptedDomain {
+        [CmdletBinding()] param([string]$Identity)
         @([pscustomobject]@{Name="contoso.com";DomainName="contoso.com";DomainType="InternalRelay";Default=$true},
           [pscustomobject]@{Name="t.mail.onmicrosoft.com";DomainName="t.mail.onmicrosoft.com";DomainType="InternalRelay";Default=$false}) |
           Where-Object { -not $Identity -or $_.Name -eq $Identity } }
-    function Set-AcceptedDomain {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function New-AcceptedDomain {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Remove-AcceptedDomain {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Get-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
-        [pscustomobject]@{DisplayName=$DN;Alias="dl";PrimarySmtpAddress=$SMTP;RecipientTypeDetails="MailUniversalDistributionGroup";WhenCreated="2026-01-01"}}
-    function Set-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Remove-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
-        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "group:$Identity" }
-    function Disable-DistributionGroup {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+    # NOTE: no -DomainName here. The SMTP namespace is fixed at creation; only
+    # New-AcceptedDomain accepts it. This omission is the point of the strict stubs.
+    function Set-AcceptedDomain {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,[string]$DomainType,
+            [string]$Name,[switch]$MakeDefault,[bool]$AddressBookEnabled,[bool]$MatchSubDomains,[bool]$OutboundOnly) }
+    function New-AcceptedDomain {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Name,[string]$DomainName,[string]$DomainType) }
+    function Remove-AcceptedDomain {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity) }
+
+    function Get-DistributionGroup {
+        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize)
+        [pscustomobject]@{DisplayName=$DN;Alias="dl";PrimarySmtpAddress=$SMTP
+            RecipientTypeDetails="MailUniversalDistributionGroup";WhenCreated="2026-01-01"} }
+    function Set-DistributionGroup {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,[string]$DisplayName,
+            [string]$Alias,[string]$Name,[string]$PrimarySmtpAddress) }
+    function New-DistributionGroup {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Name,[string]$PrimarySmtpAddress,
+            [string]$Type,[string]$Alias,[string]$DisplayName,[string]$OrganizationalUnit,$Members) }
+    function Enable-DistributionGroup {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,[string]$PrimarySmtpAddress,[string]$Alias) }
+    function Disable-DistributionGroup {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "disablegroup:$Identity" }
-    function New-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Enable-DistributionGroup {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Get-Group {param([Parameter(ValueFromRemainingArguments)]$a)
-        [pscustomobject]@{Name="Plain AD Group";DistinguishedName="CN=x";WindowsEmailAddress=$null}}
-    function Get-MailContact {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+    function Remove-DistributionGroup {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
+        Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "group:$Identity" }
+    function Get-Group {
+        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize,$RecipientTypeDetails)
+        [pscustomobject]@{Name="Plain AD Group";DistinguishedName="CN=x";WindowsEmailAddress=$null;GroupType="Universal"} }
+
+    function Get-MailContact {
+        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize)
         if ($Identity -and $Identity -notlike "*contoso.com*") { return $null }
-        [pscustomobject]@{DisplayName=$DN;PrimarySmtpAddress=$SMTP;RecipientType="MailContact";ExternalEmailAddress="x@y.com"}}
-    function Set-MailContact {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Remove-MailContact {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+        [pscustomobject]@{DisplayName=$DN;PrimarySmtpAddress=$SMTP;RecipientType="MailContact";ExternalEmailAddress="x@y.com"} }
+    function Set-MailContact {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,[string]$DisplayName,
+            [string]$ExternalEmailAddress,[string]$Alias,[string]$Name,[bool]$HiddenFromAddressListsEnabled) }
+    function New-MailContact {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Name,[string]$ExternalEmailAddress,
+            [string]$DisplayName,[string]$Alias,[string]$OrganizationalUnit,[string]$FirstName,[string]$LastName) }
+    function Remove-MailContact {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "contact:$Identity" }
-    function New-MailContact {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Get-EmailAddressPolicy {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
-        [pscustomobject]@{Name="Default Policy";Priority=1;RecipientFilter="Company -eq 'A&B'"}}
-    function Set-EmailAddressPolicy {param([Parameter(ValueFromRemainingArguments)]$a) throw "SIMULATED-FAILURE"}
-    function New-EmailAddressPolicy {param([Parameter(ValueFromRemainingArguments)]$a)}
-    function Remove-EmailAddressPolicy {param([string]$Identity,[Parameter(ValueFromRemainingArguments)]$a)
+
+    function Get-EmailAddressPolicy {
+        [CmdletBinding()] param([string]$Identity)
+        [pscustomobject]@{Name="Default Policy";Priority=1;RecipientFilter="Company -eq 'A&B'"} }
+    function Set-EmailAddressPolicy {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,$Priority,[string]$RecipientFilter,
+            [string]$Name,$EnabledEmailAddressTemplates,$IncludedRecipients,[switch]$ForceUpgrade)
+        throw "SIMULATED-FAILURE" }
+    function New-EmailAddressPolicy {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Name,$Priority,[string]$RecipientFilter,
+            $IncludedRecipients,$EnabledEmailAddressTemplates,[string]$EnabledPrimarySMTPAddressTemplate) }
+    function Remove-EmailAddressPolicy {
+        [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "policy:$Identity" }
+
     . $ScriptPath
 }
 
@@ -226,6 +284,13 @@ Check "correct confirmation mail-disables the group" ($done -contains "disablegr
 Check "mail-disable did NOT delete the AD group" ($done -notcontains "group:o'brien@contoso.com") "Remove-DistributionGroup was also called"
 Check "result explains the AD group was kept" ($x.Body -match 'kept') "no reassurance in the banner"
 if (Test-Path $delLog) { Remove-Item $delLog -Force }
+
+"`n=== 12. Changing an accepted domain's type (the reported failure) ==="
+$x = Req POST "/editaccepteddomain" "Name=contoso.com&DomainType=Authoritative"
+Check "InternalRelay -> Authoritative succeeds" ($x.Body -match 'alert-success') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Check "  no 'parameter cannot be found' error" ($x.Body -notmatch 'parameter cannot be found') "cmdlet rejected a parameter"
+$x = Req GET "/editaccepteddomain?id=contoso.com"
+Check "accepted domain name shown read-only (it is fixed at creation)" ($x.Body -match 'id="DomainNameDisplay"[^>]*disabled' -or $x.Body -match 'disabled[^>]*id="DomainNameDisplay"') "still editable"
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}

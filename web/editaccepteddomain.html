@@ -109,10 +109,13 @@
                     from here.</div>
                 </div>
                 <div class="mb-3">
-                  <label for="DomainName" class="form-label">Accepted
+                  <label for="DomainNameDisplay" class="form-label">Accepted
                     Domain</label>
-                  <input type="text" class="form-control" id="DomainName"
-                    name="DomainName" value="{DomainName}">
+                  <input type="text" class="form-control" id="DomainNameDisplay"
+                    value="{DomainName}" disabled>
+                  <div class="form-text">Exchange fixes the SMTP namespace when the
+                    domain is created, so it can't be changed here. To use a different
+                    namespace, add a new accepted domain and delete this one.</div>
                 </div>
                 <div class="mb-3">
                   <label for="DomainType" class="form-label">Domain
