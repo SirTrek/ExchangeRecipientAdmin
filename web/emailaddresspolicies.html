@@ -149,13 +149,32 @@
               <div class="mb-3">
                 <label for="priority" class="form-label">Priority</label>
                 <input type="number" class="form-control" id="priority"
-                  name="priority" required>
+                  name="priority" min="1" required>
+                <div class="form-text">Lower numbers are applied first.</div>
+              </div>
+              <div class="mb-3">
+                <label for="addressTemplate" class="form-label">Email Address
+                  Template</label>
+                <input type="text" class="form-control" id="addressTemplate"
+                  name="addressTemplate" placeholder="%m@maloufcompanies.com"
+                  required>
+                <div class="form-text">
+                  The address format this policy stamps on matching recipients.
+                  Exchange needs this to create a policy at all.
+                  <code>%m</code> = alias, <code>%g</code> = first name,
+                  <code>%s</code> = last name, <code>%1g</code> = first initial.
+                  For example <code>%g.%s@contoso.com</code> gives
+                  <em>jane.doe@contoso.com</em>. The domain must already be an
+                  accepted domain.
+                </div>
               </div>
               <div class="mb-3">
                 <label for="recipientFilter" class="form-label">Recipient
                   Filter</label>
                 <textarea class="form-control" id="recipientFilter"
-                  name="recipientFilter" rows="3" required></textarea>
+                  name="recipientFilter" rows="3" required
+                  placeholder="RecipientType -eq 'UserMailbox'"></textarea>
+                <div class="form-text">Which recipients the policy applies to.</div>
               </div>
             </form>
           </div>

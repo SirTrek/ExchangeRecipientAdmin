@@ -1013,8 +1013,35 @@ try {
                 $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
 
                 try {
-                    New-EmailAddressPolicy -Name $params['policyName'] -Priority $params['priority'] -RecipientFilter $params['recipientFilter'] -ErrorAction Stop | Out-Null
-                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email Address Policy $(ConvertTo-SafeHtml $params['policyName']) created")
+                    # New-EmailAddressPolicy cannot resolve a parameter set from
+                    # Name/Priority/RecipientFilter alone - it also needs the address
+                    # template, which is the whole point of a policy. Without it the
+                    # cmdlet fails with "Parameter set cannot be resolved using the
+                    # specified named parameters" regardless of what else is supplied.
+                    $Template = [string]$params['addressTemplate']
+                    if ([string]::IsNullOrWhiteSpace($Template)) {
+                        throw "An email address template is required, for example %m@yourdomain.com"
+                    }
+                    # Accept the template with or without a prefix; the uppercase SMTP:
+                    # form marks it as the primary reply address.
+                    $Template = $Template.Trim()
+                    if ($Template -match '^(?i)smtp:') { $Template = "SMTP:" + $Template.Substring(5) }
+                    else { $Template = "SMTP:" + $Template }
+
+                    # Built by splatting so a blank optional field is omitted rather than
+                    # passed as an empty string, which Exchange rejects.
+                    $NewPolicy = @{
+                        Name                         = $params['policyName']
+                        RecipientFilter              = $params['recipientFilter']
+                        EnabledEmailAddressTemplates = $Template
+                        ErrorAction                  = 'Stop'
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$params['priority'])) {
+                        $NewPolicy['Priority'] = $params['priority']
+                    }
+
+                    New-EmailAddressPolicy @NewPolicy | Out-Null
+                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email Address Policy $(ConvertTo-SafeHtml $params['policyName']) created with template $(ConvertTo-SafeHtml $Template). It is not applied to recipients until you run Update-EmailAddressPolicy.")
                 }
                 catch {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))

@@ -128,7 +128,13 @@ $prelude = {
         throw "SIMULATED-FAILURE" }
     function New-EmailAddressPolicy {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Name,$Priority,[string]$RecipientFilter,
-            $IncludedRecipients,$EnabledEmailAddressTemplates,[string]$EnabledPrimarySMTPAddressTemplate) }
+            $IncludedRecipients,$EnabledEmailAddressTemplates,[string]$EnabledPrimarySMTPAddressTemplate)
+        # Mirrors the real constraint: without an address template Exchange cannot pick a
+        # parameter set and fails before doing anything, whatever else you supply.
+        if (-not $EnabledEmailAddressTemplates -and -not $EnabledPrimarySMTPAddressTemplate) {
+            throw "Parameter set cannot be resolved using the specified named parameters."
+        }
+        Add-Content -Path (Join-Path $env:TEMP "erac_policy_test.txt") -Value "$Name|$EnabledEmailAddressTemplates|$Priority" }
     function Remove-EmailAddressPolicy {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "policy:$Identity" }
@@ -291,6 +297,35 @@ Check "InternalRelay -> Authoritative succeeds" ($x.Body -match 'alert-success')
 Check "  no 'parameter cannot be found' error" ($x.Body -notmatch 'parameter cannot be found') "cmdlet rejected a parameter"
 $x = Req GET "/editaccepteddomain?id=contoso.com"
 Check "accepted domain name shown read-only (it is fixed at creation)" ($x.Body -match 'id="DomainNameDisplay"[^>]*disabled' -or $x.Body -match 'disabled[^>]*id="DomainNameDisplay"') "still editable"
+
+"`n=== 13. Creating an email address policy (needs an address template) ==="
+$polLog = Join-Path $env:TEMP "erac_policy_test.txt"
+if (Test-Path $polLog) { Remove-Item $polLog -Force }
+
+$x = Req GET "/emailaddresspolicies"
+Check "modal collects an address template" ($x.Body -match 'name="addressTemplate"') "field missing"
+Check "  template syntax is explained" ($x.Body -match '%m' -and $x.Body -match '%g') "no placeholder help"
+
+$x = Req POST "/addemailaddresspolicy" "policyName=Test+Policy&priority=5&recipientFilter=RecipientType+-eq+%27UserMailbox%27&addressTemplate=%25m%40contoso.com"
+Check "policy with a template is created" ($x.Body -match 'alert-success') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Check "  no parameter-set error" ($x.Body -notmatch 'Parameter set cannot be resolved') "cmdlet could not resolve a set"
+Start-Sleep -Milliseconds 200
+$made = @(Get-Content $polLog -EA SilentlyContinue)
+Check "  template reaches Exchange with an SMTP: prefix" ($made -contains "Test Policy|SMTP:%m@contoso.com|5") "got: $($made -join ',')"
+
+# a template typed WITH the prefix must not end up double-prefixed
+if (Test-Path $polLog) { Remove-Item $polLog -Force }
+Req POST "/addemailaddresspolicy" "policyName=P2&priority=6&recipientFilter=x&addressTemplate=smtp%3A%25m%40contoso.com" | Out-Null
+Start-Sleep -Milliseconds 200
+$made = @(Get-Content $polLog -EA SilentlyContinue)
+Check "an already-prefixed template is normalised, not doubled" ($made -contains "P2|SMTP:%m@contoso.com|6") "got: $($made -join ',')"
+
+# omitting the template must explain itself rather than surfacing the raw cmdlet error
+if (Test-Path $polLog) { Remove-Item $polLog -Force }
+$x = Req POST "/addemailaddresspolicy" "policyName=P3&priority=7&recipientFilter=x&addressTemplate="
+Check "missing template gives an actionable message" ($x.Body -match 'template is required') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Check "  and creates nothing" (-not (Test-Path $polLog)) "a policy was created anyway"
+if (Test-Path $polLog) { Remove-Item $polLog -Force }
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}
