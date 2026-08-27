@@ -262,23 +262,19 @@ function Get-AcceptedDomainsListPage {
         [string]$ResultHtml = ""
     )
 
+    # No per-row Delete button here on purpose: deleting an accepted domain is reached
+    # only through the Danger Zone on the domain's own page, so it can't be fired from a
+    # list where one misplaced click sits next to every other row.
     $HTMLROWS = ""
     foreach ($Item in (Get-AcceptedDomain)) {
         $SafeName = ConvertTo-SafeHtml $Item.Name
-        $SafeDomain = ConvertTo-SafeHtml $Item.DomainName
         $Href = ConvertTo-SafeHtml ([URI]::EscapeDataString([string]$Item.Name))
         $HTMLROWS += "
         <tr>
         <th scope=`"row`">
         <a href=`"/editaccepteddomain?id=$Href`">$SafeName</a></th>
-        <td>$SafeDomain</td>
+        <td>$(ConvertTo-SafeHtml $Item.DomainName)</td>
         <td>$(ConvertTo-SafeHtml $Item.DomainType)</td>
-        <td>
-        <form method=`"post`" action=`"/deleteaccepteddomain`" data-confirm=`"Delete accepted domain ${SafeDomain}? This cannot be undone from here.`" onsubmit=`"return confirm(this.dataset.confirm)`">
-        <input type=`"hidden`" name=`"name`" value=`"$SafeName`">
-        <button type=`"submit`" class=`"btn btn-sm btn-outline-danger`">Delete</button>
-        </form>
-        </td>
         </tr>";
     }
 

@@ -370,6 +370,16 @@ Check "a changed priority IS sent" ($sent -contains "Default Policy|priority=3")
 Check "  and reports success" ($x.Body -match 'alert-success') "no success banner"
 if (Test-Path $setLog) { Remove-Item $setLog -Force }
 
+"`n=== 15. Accepted domain delete lives only on the domain's own page ==="
+$x = Req GET "/accepteddomains"
+Check "list page has no per-row delete form" ($x.Body -notmatch 'action="/deleteaccepteddomain"') "a delete form is still rendered in the list"
+Check "  and no leftover empty header column" (([regex]::Matches($x.Body,'<th scope="col">')).Count -eq 3) "header column count is $((([regex]::Matches($x.Body,'<th scope=\"col\">')).Count))"
+Check "  domains still listed and clickable" ($x.Body -match 'href="/editaccepteddomain\?id=contoso\.com"') "rows missing"
+$x = Req GET "/editaccepteddomain?id=contoso.com"
+Check "delete still offered in the Danger Zone" ($x.Body -match 'action="/deleteaccepteddomain"' -and $x.Body -match 'Danger Zone') "delete no longer reachable at all"
+$x = Req POST "/deleteaccepteddomain" "name=contoso.com"
+Check "  and the route still works" ($x.Status -eq 200 -and $x.Body -match 'alert-success') "status=$($x.Status)"
+
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}
 Start-Sleep -Seconds 1
