@@ -765,8 +765,33 @@ try {
                 $params = ConvertFrom-HttpQuery (Read-RequestBody $REQUEST)
 
                 try {
-                    Set-EmailAddressPolicy -Identity $params['Name'] -Priority $params['Priority'] -RecipientFilter $params['RecipientFilter'] -ErrorAction Stop
-                    $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email Address Policy updated successfully")
+                    $Existing = Get-EmailAddressPolicy -Identity $params['Name'] -ErrorAction Stop
+
+                    # Built by splatting so a field the operator left alone is omitted
+                    # rather than sent as an empty string. Previously -Priority "" was
+                    # passed unconditionally and Exchange rejected it outright:
+                    # 'Cannot convert value "" to type EmailAddressPolicyPriority'.
+                    $SetPolicy = @{ Identity = $params['Name']; ErrorAction = 'Stop' }
+
+                    if (-not [string]::IsNullOrWhiteSpace([string]$params['RecipientFilter'])) {
+                        $SetPolicy['RecipientFilter'] = $params['RecipientFilter']
+                    }
+
+                    # Only send Priority when it is present AND actually different. The
+                    # default policy is pinned to "Lowest" and rejects being re-set to
+                    # its own value, so resubmitting an unchanged form must be a no-op.
+                    $NewPriority = ([string]$params['Priority']).Trim()
+                    if ($NewPriority -and $NewPriority -ne ([string]$Existing.Priority)) {
+                        $SetPolicy['Priority'] = $NewPriority
+                    }
+
+                    if ($SetPolicy.Keys.Count -le 2) {
+                        $HTML_RESULT = $HTML_WARN.Replace("{result}", "Nothing to update - no changes were submitted")
+                    }
+                    else {
+                        Set-EmailAddressPolicy @SetPolicy
+                        $HTML_RESULT = $HTML_SUCCESS.Replace("{result}", "Email Address Policy $(ConvertTo-SafeHtml $params['Name']) updated. Changes are not applied to recipients until you run Update-EmailAddressPolicy.")
+                    }
                 }
                 catch {
                     $HTML_RESULT = $HTML_WARN.Replace("{result}", (ConvertTo-SafeHtml $_.Exception.Message))

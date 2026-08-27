@@ -121,11 +121,22 @@ $prelude = {
 
     function Get-EmailAddressPolicy {
         [CmdletBinding()] param([string]$Identity)
-        [pscustomobject]@{Name="Default Policy";Priority=1;RecipientFilter="Company -eq 'A&B'"} }
+        # The default policy's priority really is "Lowest", not a number - which is what
+        # an <input type="number"> could not hold, blanking the field on submit.
+        [pscustomobject]@{Name="Default Policy";Priority="Lowest";RecipientFilter="Company -eq 'A&B'"} }
     function Set-EmailAddressPolicy {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,$Priority,[string]$RecipientFilter,
             [string]$Name,$EnabledEmailAddressTemplates,$IncludedRecipients,[switch]$ForceUpgrade)
-        throw "SIMULATED-FAILURE" }
+        # lets a test force a failure without making every call fail
+        if ($RecipientFilter -eq 'TRIGGER-FAILURE') { throw "SIMULATED-FAILURE" }
+        # mirrors the real -Priority type: an empty string is rejected outright
+        if ($PSBoundParameters.ContainsKey('Priority')) {
+            if ([string]::IsNullOrWhiteSpace([string]$Priority)) {
+                throw 'Cannot bind parameter ''Priority''. Cannot convert value "" to type "EmailAddressPolicyPriority". The correct values include "Lowest" and positive 32-bit integers.'
+            }
+        }
+        $sent = if ($PSBoundParameters.ContainsKey('Priority')) { "priority=$Priority" } else { "priority=<omitted>" }
+        Add-Content -Path (Join-Path $env:TEMP "erac_setpolicy_test.txt") -Value "$Identity|$sent" }
     function New-EmailAddressPolicy {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Name,$Priority,[string]$RecipientFilter,
             $IncludedRecipients,$EnabledEmailAddressTemplates,[string]$EnabledPrimarySMTPAddressTemplate)
@@ -200,8 +211,8 @@ $x = Req GET "/contacts"
 Check "markup in a DisplayName is inert in list rows" ($x.Body -notmatch '<b>Sons</b>' -and $x.Body -match '&lt;b&gt;Sons&lt;/b&gt;') "markup rendered live"
 
 "`n=== 6. Error banner shows only the current failure ==="
-$b1 = (Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=1&RecipientFilter=x").Body
-$b2 = (Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=1&RecipientFilter=x").Body
+$b1 = (Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=1&RecipientFilter=TRIGGER-FAILURE").Body
+$b2 = (Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=1&RecipientFilter=TRIGGER-FAILURE").Body
 $n1 = ([regex]::Matches($b1,'SIMULATED-FAILURE')).Count
 $n2 = ([regex]::Matches($b2,'SIMULATED-FAILURE')).Count
 Check "error is not repeated on the 2nd failure" ($n1 -eq 1 -and $n2 -eq 1) "1st=$n1 2nd=$n2 occurrences"
@@ -326,6 +337,38 @@ $x = Req POST "/addemailaddresspolicy" "policyName=P3&priority=7&recipientFilter
 Check "missing template gives an actionable message" ($x.Body -match 'template is required') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
 Check "  and creates nothing" (-not (Test-Path $polLog)) "a policy was created anyway"
 if (Test-Path $polLog) { Remove-Item $polLog -Force }
+
+"`n=== 14. Updating a policy whose priority is Lowest (the reported failure) ==="
+$setLog = Join-Path $env:TEMP "erac_setpolicy_test.txt"
+if (Test-Path $setLog) { Remove-Item $setLog -Force }
+
+$x = Req GET "/editemailaddresspolicy?id=Default%20Policy"
+Check "priority field can hold a non-numeric value" ($x.Body -match 'id="Priority"[^>]*type="text"' -or $x.Body -match 'type="text"[^>]*id="Priority"') "still a number-only input"
+Check "  and shows the real value, Lowest" ($x.Body -match 'value="Lowest"') "Lowest not rendered"
+
+# resubmitting the form unchanged must not try to re-set Lowest
+$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=Lowest&RecipientFilter=Company+-eq+%27A%26B%27"
+Check "unchanged priority is not resent" ($x.Body -notmatch 'Cannot convert value') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Start-Sleep -Milliseconds 200
+$sent = @(Get-Content $setLog -EA SilentlyContinue)
+Check "  Priority omitted from the cmdlet call" ($sent -contains "Default Policy|priority=<omitted>") "got: $($sent -join ',')"
+
+# a blank priority must not be sent as an empty string
+if (Test-Path $setLog) { Remove-Item $setLog -Force }
+$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=&RecipientFilter=Company+-eq+%27A%26B%27"
+Check "blank priority does not reach the cmdlet" ($x.Body -notmatch 'Cannot convert value') "empty string was passed through"
+Start-Sleep -Milliseconds 200
+$sent = @(Get-Content $setLog -EA SilentlyContinue)
+Check "  Priority omitted when left blank" ($sent -contains "Default Policy|priority=<omitted>") "got: $($sent -join ',')"
+
+# a genuinely changed priority must still be applied
+if (Test-Path $setLog) { Remove-Item $setLog -Force }
+$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=3&RecipientFilter=Company+-eq+%27A%26B%27"
+Start-Sleep -Milliseconds 200
+$sent = @(Get-Content $setLog -EA SilentlyContinue)
+Check "a changed priority IS sent" ($sent -contains "Default Policy|priority=3") "got: $($sent -join ',')"
+Check "  and reports success" ($x.Body -match 'alert-success') "no success banner"
+if (Test-Path $setLog) { Remove-Item $setLog -Force }
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}
