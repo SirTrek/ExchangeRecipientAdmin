@@ -368,8 +368,13 @@ function Get-EmailAddressPoliciesListPage {
         </tr>";
     }
 
+    # A new policy may take any existing slot or be appended one past the end.
+    $NewMax = (Get-PolicyPriorityCount) + 1
+    $PriorityOptions = Get-PriorityOptionsHtml -Max $NewMax -Selected ([string]$NewMax)
+
     $HTMLRESPONSE = Read-Template "emailaddresspolicies.html"
     $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {row} -->", $HTMLROWS)
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {priority_options} -->", $PriorityOptions)
     $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {result} -->", $ResultHtml)
     return $HTMLRESPONSE
 }
@@ -468,6 +473,38 @@ function Get-ContactEditPage {
     return $HTMLRESPONSE
 }
 
+function Get-PolicyPriorityCount {
+    # Exchange keeps email address policy priorities as a contiguous 1..N sequence and
+    # rejects anything further out: "The specified priority isn't valid. The priority
+    # should be equivalent to or immediately higher or lower than the priority of an
+    # existing policy." So the usable range has to be derived from what already exists
+    # rather than left as a free-text box.
+    #
+    # The default policy sits outside the sequence with a priority of "Lowest", so only
+    # numerically-prioritised policies count.
+    $Numeric = 0
+    foreach ($P in @(Get-EmailAddressPolicy -ErrorAction SilentlyContinue)) {
+        $Parsed = 0
+        if ([int]::TryParse([string]$P.Priority, [ref]$Parsed)) { $Numeric++ }
+    }
+    return $Numeric
+}
+
+function Get-PriorityOptionsHtml {
+    # Options 1..Max, with $Selected marked. Max is the count of existing numeric
+    # policies for an edit (the policy is already in the sequence) or that count plus
+    # one for a new policy (it can be appended to the end).
+    param([int]$Max, [string]$Selected = "")
+
+    if ($Max -lt 1) { $Max = 1 }
+    $Html = ""
+    for ($i = 1; $i -le $Max; $i++) {
+        $Sel = if ([string]$i -eq $Selected) { " selected" } else { "" }
+        $Html += "`n<option$Sel value=`"$i`">$i</option>"
+    }
+    return $Html
+}
+
 function Get-EmailAddressPolicyEditPage {
     # Renders editemailaddresspolicy.html for a given policy identity. Shared
     # by the GET (initial view) and POST (after an update) handlers below.
@@ -486,7 +523,28 @@ function Get-EmailAddressPolicyEditPage {
         return Get-ErrorPage -Title "Email address policy not found" -Detail "No email address policy matched '$Identity'."
     }
 
+    # The priority control is built server-side rather than templated, because what is
+    # valid depends on how many policies exist - and for the default policy nothing is.
+    $CurrentPriority = [string]$Policy.Priority
+    if ($CurrentPriority -eq 'Lowest') {
+        $PriorityControl = @"
+<input type="text" class="form-control" id="Priority" value="Lowest" disabled>
+<div class="form-text">This is the default policy. Its priority is fixed at
+<code>Lowest</code> and cannot be changed.</div>
+"@
+    }
+    else {
+        $Max = Get-PolicyPriorityCount
+        $Options = Get-PriorityOptionsHtml -Max $Max -Selected $CurrentPriority
+        $PriorityControl = @"
+<select class="form-select" id="Priority" name="Priority">$Options</select>
+<div class="form-text">Lower numbers are applied first. Exchange keeps priorities in a
+single unbroken run, so only 1 to $Max are valid here - it rejects anything further out.</div>
+"@
+    }
+
     $HTMLRESPONSE = Read-Template "editemailaddresspolicy.html"
+    $HTMLRESPONSE = $HTMLRESPONSE.Replace("<!-- {priority_control} -->", $PriorityControl)
     $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Name}", (ConvertTo-SafeHtml $Policy.Name))
     $HTMLRESPONSE = $HTMLRESPONSE.Replace("{Priority}", (ConvertTo-SafeHtml $Policy.Priority))
     $HTMLRESPONSE = $HTMLRESPONSE.Replace("{RecipientFilter}", (ConvertTo-SafeHtml $Policy.RecipientFilter))
@@ -778,7 +836,12 @@ try {
                     # its own value, so resubmitting an unchanged form must be a no-op.
                     $NewPriority = ([string]$params['Priority']).Trim()
                     if ($NewPriority -and $NewPriority -ne ([string]$Existing.Priority)) {
-                        $SetPolicy['Priority'] = $NewPriority
+                        $MaxAllowed = Get-PolicyPriorityCount
+                        $AsInt = 0
+                        if (-not [int]::TryParse($NewPriority, [ref]$AsInt) -or $AsInt -lt 1 -or $AsInt -gt $MaxAllowed) {
+                            throw "Priority must be a whole number between 1 and $MaxAllowed. Exchange keeps policy priorities in one unbroken run, so it rejects values outside that."
+                        }
+                        $SetPolicy['Priority'] = $AsInt
                     }
 
                     if ($SetPolicy.Keys.Count -le 2) {
@@ -1057,8 +1120,17 @@ try {
                         EnabledEmailAddressTemplates = $Template
                         ErrorAction                  = 'Stop'
                     }
-                    if (-not [string]::IsNullOrWhiteSpace([string]$params['priority'])) {
-                        $NewPolicy['Priority'] = $params['priority']
+                    # Exchange only accepts a priority inside the existing contiguous
+                    # run, or one past the end. Checked here as well as in the dropdown,
+                    # which is only a UI hint.
+                    $WantPriority = ([string]$params['priority']).Trim()
+                    if ($WantPriority) {
+                        $MaxAllowed = (Get-PolicyPriorityCount) + 1
+                        $AsInt = 0
+                        if (-not [int]::TryParse($WantPriority, [ref]$AsInt) -or $AsInt -lt 1 -or $AsInt -gt $MaxAllowed) {
+                            throw "Priority must be a whole number between 1 and $MaxAllowed. Exchange keeps policy priorities in one unbroken run, so it rejects values outside that."
+                        }
+                        $NewPolicy['Priority'] = $AsInt
                     }
 
                     New-EmailAddressPolicy @NewPolicy | Out-Null

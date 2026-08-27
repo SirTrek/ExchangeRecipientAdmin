@@ -122,8 +122,16 @@ $prelude = {
     function Get-EmailAddressPolicy {
         [CmdletBinding()] param([string]$Identity)
         # The default policy's priority really is "Lowest", not a number - which is what
-        # an <input type="number"> could not hold, blanking the field on submit.
-        [pscustomobject]@{Name="Default Policy";Priority="Lowest";RecipientFilter="Company -eq 'A&B'"} }
+        # an <input type="number"> could not hold, blanking the field on submit. Two
+        # numerically-prioritised policies sit alongside it, so the valid range for an
+        # edit is 1-2 and for a new policy 1-3.
+        $all = @(
+            [pscustomobject]@{Name="Default Policy";Priority="Lowest";RecipientFilter="Company -eq 'A&B'"}
+            [pscustomobject]@{Name="Sales Policy";Priority=1;RecipientFilter="Department -eq 'Sales'"}
+            [pscustomobject]@{Name="Ops Policy";Priority=2;RecipientFilter="Department -eq 'Ops'"}
+        )
+        if ($Identity) { return ($all | Where-Object { $_.Name -eq $Identity }) }
+        return $all }
     function Set-EmailAddressPolicy {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Identity,$Priority,[string]$RecipientFilter,
             [string]$Name,$EnabledEmailAddressTemplates,$IncludedRecipients,[switch]$ForceUpgrade)
@@ -133,6 +141,15 @@ $prelude = {
         if ($PSBoundParameters.ContainsKey('Priority')) {
             if ([string]::IsNullOrWhiteSpace([string]$Priority)) {
                 throw 'Cannot bind parameter ''Priority''. Cannot convert value "" to type "EmailAddressPolicyPriority". The correct values include "Lowest" and positive 32-bit integers.'
+            }
+        }
+        # mirrors the contiguity rule: only 1..(number of numeric policies) is accepted
+        if ($PSBoundParameters.ContainsKey('Priority')) {
+            $n = 0
+            if ([int]::TryParse([string]$Priority, [ref]$n)) {
+                if ($n -lt 1 -or $n -gt 2) {
+                    throw "The specified priority `"$Priority`" isn't valid. The priority should be equivalent to or immediately higher or lower than the priority of an existing policy. Parameter name: Priority"
+                }
             }
         }
         $sent = if ($PSBoundParameters.ContainsKey('Priority')) { "priority=$Priority" } else { "priority=<omitted>" }
@@ -317,23 +334,23 @@ $x = Req GET "/emailaddresspolicies"
 Check "modal collects an address template" ($x.Body -match 'name="addressTemplate"') "field missing"
 Check "  template syntax is explained" ($x.Body -match '%m' -and $x.Body -match '%g') "no placeholder help"
 
-$x = Req POST "/addemailaddresspolicy" "policyName=Test+Policy&priority=5&recipientFilter=RecipientType+-eq+%27UserMailbox%27&addressTemplate=%25m%40contoso.com"
+$x = Req POST "/addemailaddresspolicy" "policyName=Test+Policy&priority=3&recipientFilter=RecipientType+-eq+%27UserMailbox%27&addressTemplate=%25m%40contoso.com"
 Check "policy with a template is created" ($x.Body -match 'alert-success') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
 Check "  no parameter-set error" ($x.Body -notmatch 'Parameter set cannot be resolved') "cmdlet could not resolve a set"
 Start-Sleep -Milliseconds 200
 $made = @(Get-Content $polLog -EA SilentlyContinue)
-Check "  template reaches Exchange with an SMTP: prefix" ($made -contains "Test Policy|SMTP:%m@contoso.com|5") "got: $($made -join ',')"
+Check "  template reaches Exchange with an SMTP: prefix" ($made -contains "Test Policy|SMTP:%m@contoso.com|3") "got: $($made -join ',')"
 
 # a template typed WITH the prefix must not end up double-prefixed
 if (Test-Path $polLog) { Remove-Item $polLog -Force }
-Req POST "/addemailaddresspolicy" "policyName=P2&priority=6&recipientFilter=x&addressTemplate=smtp%3A%25m%40contoso.com" | Out-Null
+Req POST "/addemailaddresspolicy" "policyName=P2&priority=2&recipientFilter=x&addressTemplate=smtp%3A%25m%40contoso.com" | Out-Null
 Start-Sleep -Milliseconds 200
 $made = @(Get-Content $polLog -EA SilentlyContinue)
-Check "an already-prefixed template is normalised, not doubled" ($made -contains "P2|SMTP:%m@contoso.com|6") "got: $($made -join ',')"
+Check "an already-prefixed template is normalised, not doubled" ($made -contains "P2|SMTP:%m@contoso.com|2") "got: $($made -join ',')"
 
 # omitting the template must explain itself rather than surfacing the raw cmdlet error
 if (Test-Path $polLog) { Remove-Item $polLog -Force }
-$x = Req POST "/addemailaddresspolicy" "policyName=P3&priority=7&recipientFilter=x&addressTemplate="
+$x = Req POST "/addemailaddresspolicy" "policyName=P3&priority=1&recipientFilter=x&addressTemplate="
 Check "missing template gives an actionable message" ($x.Body -match 'template is required') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
 Check "  and creates nothing" (-not (Test-Path $polLog)) "a policy was created anyway"
 if (Test-Path $polLog) { Remove-Item $polLog -Force }
@@ -343,11 +360,10 @@ $setLog = Join-Path $env:TEMP "erac_setpolicy_test.txt"
 if (Test-Path $setLog) { Remove-Item $setLog -Force }
 
 $x = Req GET "/editemailaddresspolicy?id=Default%20Policy"
-Check "priority field can hold a non-numeric value" ($x.Body -match 'id="Priority"[^>]*type="text"' -or $x.Body -match 'type="text"[^>]*id="Priority"') "still a number-only input"
-Check "  and shows the real value, Lowest" ($x.Body -match 'value="Lowest"') "Lowest not rendered"
+Check "default policy shows Lowest and cannot be edited" ($x.Body -match 'value="Lowest"' -and $x.Body -match 'id="Priority"[^>]*disabled') "Lowest not shown read-only"
 
 # resubmitting the form unchanged must not try to re-set Lowest
-$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=Lowest&RecipientFilter=Company+-eq+%27A%26B%27"
+$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&RecipientFilter=Company+-eq+%27A%26B%27"
 Check "unchanged priority is not resent" ($x.Body -notmatch 'Cannot convert value') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
 Start-Sleep -Milliseconds 200
 $sent = @(Get-Content $setLog -EA SilentlyContinue)
@@ -363,10 +379,10 @@ Check "  Priority omitted when left blank" ($sent -contains "Default Policy|prio
 
 # a genuinely changed priority must still be applied
 if (Test-Path $setLog) { Remove-Item $setLog -Force }
-$x = Req POST "/editemailaddresspolicy" "Name=Default+Policy&Priority=3&RecipientFilter=Company+-eq+%27A%26B%27"
+$x = Req POST "/editemailaddresspolicy" "Name=Sales+Policy&Priority=2&RecipientFilter=Department+-eq+%27Sales%27"
 Start-Sleep -Milliseconds 200
 $sent = @(Get-Content $setLog -EA SilentlyContinue)
-Check "a changed priority IS sent" ($sent -contains "Default Policy|priority=3") "got: $($sent -join ',')"
+Check "a changed priority IS sent" ($sent -contains "Sales Policy|priority=2") "got: $($sent -join ',')"
 Check "  and reports success" ($x.Body -match 'alert-success') "no success banner"
 if (Test-Path $setLog) { Remove-Item $setLog -Force }
 
@@ -379,6 +395,34 @@ $x = Req GET "/editaccepteddomain?id=contoso.com"
 Check "delete still offered in the Danger Zone" ($x.Body -match 'action="/deleteaccepteddomain"' -and $x.Body -match 'Danger Zone') "delete no longer reachable at all"
 $x = Req POST "/deleteaccepteddomain" "name=contoso.com"
 Check "  and the route still works" ($x.Status -eq 200 -and $x.Body -match 'alert-success') "status=$($x.Status)"
+
+"`n=== 16. Priority is offered as valid choices only (the reported failure) ==="
+$setLog = Join-Path $env:TEMP "erac_setpolicy_test.txt"
+$polLog = Join-Path $env:TEMP "erac_policy_test.txt"
+foreach ($l in @($setLog,$polLog)) { if (Test-Path $l) { Remove-Item $l -Force } }
+
+# 2 numeric policies exist -> edit range 1-2, new range 1-3
+$x = Req GET "/editemailaddresspolicy?id=Sales%20Policy"
+Check "edit page offers a priority dropdown" ($x.Body -match '<select[^>]*name="Priority"') "still a free-text field"
+Check "  limited to the valid range 1-2" (($x.Body -match '<option[^>]*value="1"') -and ($x.Body -match '<option[^>]*value="2"') -and ($x.Body -notmatch '<option[^>]*value="3"')) "range wrong"
+Check "  current value preselected" ($x.Body -match '<option selected value="1">') "not preselected"
+
+$x = Req GET "/emailaddresspolicies"
+Check "add modal offers a priority dropdown" ($x.Body -match '<select[^>]*name="priority"') "still a number box"
+Check "  allows one past the end (1-3)" (($x.Body -match '<option[^>]*value="3"') -and ($x.Body -notmatch '<option[^>]*value="4"')) "range wrong"
+Check "  defaults to appending at the end" ($x.Body -match '<option selected value="3">') "no sensible default"
+
+# the reported value: 11 is way outside the run and must be refused before the cmdlet
+$x = Req POST "/editemailaddresspolicy" "Name=Sales+Policy&Priority=11&RecipientFilter=Department+-eq+%27Sales%27"
+Check "an out-of-range priority is refused" ($x.Body -match 'between 1 and 2') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Start-Sleep -Milliseconds 200
+Check "  and never reaches Exchange" (-not (Test-Path $setLog)) "Set-EmailAddressPolicy was called: $(Get-Content $setLog -EA SilentlyContinue)"
+
+$x = Req POST "/addemailaddresspolicy" "policyName=P9&priority=11&recipientFilter=x&addressTemplate=%25m%40contoso.com"
+Check "out-of-range priority refused when adding too" ($x.Body -match 'between 1 and 3') "banner: $((([regex]::Match($x.Body,'<div class=\"alert[^\"]*\"[^>]*>(.*?)</div>')).Groups[1].Value) -replace '\s+',' ')"
+Start-Sleep -Milliseconds 200
+Check "  and creates nothing" (-not (Test-Path $polLog)) "a policy was created"
+foreach ($l in @($setLog,$polLog)) { if (Test-Path $l) { Remove-Item $l -Force } }
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}

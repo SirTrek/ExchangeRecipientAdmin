@@ -148,9 +148,13 @@
               </div>
               <div class="mb-3">
                 <label for="priority" class="form-label">Priority</label>
-                <input type="number" class="form-control" id="priority"
-                  name="priority" min="1" required>
-                <div class="form-text">Lower numbers are applied first.</div>
+                <select class="form-select" id="priority" name="priority" required>
+                  <!-- {priority_options} -->
+                </select>
+                <div class="form-text">Lower numbers are applied first. Exchange
+                  keeps priorities in a single unbroken run, so only the values
+                  listed are accepted - the last one appends this policy to the
+                  end.</div>
               </div>
               <div class="mb-3">
                 <label for="addressTemplate" class="form-label">Email Address
