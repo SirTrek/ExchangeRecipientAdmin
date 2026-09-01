@@ -101,9 +101,17 @@ $prelude = {
     function Remove-DistributionGroup {
         [CmdletBinding(SupportsShouldProcess)] param([string]$Identity)
         Add-Content -Path (Join-Path $env:TEMP "erac_deletes_test.txt") -Value "group:$Identity" }
-    function Get-Group {
-        [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize,$RecipientTypeDetails)
-        [pscustomobject]@{Name="Plain AD Group";DistinguishedName="CN=x";WindowsEmailAddress=$null;GroupType="Universal"} }
+    # The app queries AD over ADSI for groups that are not yet mail-enabled. Its
+    # $ERAC_GroupLookup override is used here so the suite never issues an LDAP query -
+    # a plain function stub would not work, because dot-sourcing the app defines the
+    # real one afterwards and wins. The sentinel file drives the degraded path; an
+    # environment variable would not, since the server runs in a separate process.
+    $ERAC_GroupLookup = {
+        if (Test-Path (Join-Path $env:TEMP "erac_groups_fail.txt")) {
+            throw "The term 'Get-Group' is not recognized as the name of a cmdlet."
+        }
+        [pscustomobject]@{ Name = "Plain AD Group"; Dn = "CN=Plain AD Group,OU=Groups,DC=contoso,DC=com" }
+    }
 
     function Get-MailContact {
         [CmdletBinding()] param([string]$Identity,[string]$Filter,$ResultSize)
@@ -170,6 +178,7 @@ $prelude = {
     . $ScriptPath
 }
 
+Remove-Item (Join-Path $env:TEMP "erac_groups_fail.txt") -ErrorAction SilentlyContinue
 $job = Start-Job -ScriptBlock $prelude -ArgumentList $script,$Port
 foreach($i in 1..40){Start-Sleep -m 400; try{Invoke-WebRequest "$base/" -UseBasicParsing -TimeoutSec 3|Out-Null;break}catch{}}
 
@@ -250,7 +259,7 @@ foreach($u in @("/","/remotemailboxes","/distributiongroups","/contacts","/email
   Check "no unreplaced placeholder on $u" ($leak.Count -eq 0) "$($leak -join ',')"
 }
 $x = Req GET "/distributiongroups"
-Check "mail-enable group picker is populated" ($x.Body -match '<option value="Plain AD Group">') "dropdown still empty"
+Check "mail-enable group picker is populated" ($x.Body -match '<option value="CN=Plain AD Group[^"]*">Plain AD Group</option>') "dropdown still empty"
 
 "`n=== 9. Still safe, still alive ==="
 foreach($u in @("/../Start-ExchangeRecipientAdminCenter.ps1","/%2e%2e/Start-ExchangeRecipientAdminCenter.ps1")){
@@ -423,6 +432,31 @@ Check "out-of-range priority refused when adding too" ($x.Body -match 'between 1
 Start-Sleep -Milliseconds 200
 Check "  and creates nothing" (-not (Test-Path $polLog)) "a policy was created"
 foreach ($l in @($setLog,$polLog)) { if (Test-Path $l) { Remove-Item $l -Force } }
+
+"`n=== 17. No stray output leaks into the page (the reported failure) ==="
+# A bare string inside a PowerShell function becomes part of its RETURN VALUE, so it
+# gets joined onto the HTML and rendered at the top of the page. Every HTML response
+# must therefore begin exactly with the doctype - this catches the whole class, not
+# just the one instance that was reported.
+foreach ($u in @("/","/remotemailboxes","/distributiongroups","/contacts","/emailaddresspolicies",
+                 "/accepteddomains","/editremotemailbox?id=o%27brien%40contoso.com",
+                 "/editdistributiongroup?id=o%27brien%40contoso.com","/editcontact?id=o%27brien%40contoso.com",
+                 "/editemailaddresspolicy?id=Sales%20Policy","/editaccepteddomain?id=contoso.com")) {
+  $x = Req GET $u
+  Check "page starts with the doctype: $u" ($x.Body.TrimStart().StartsWith('<!doctype')) "starts with: '$($x.Body.Substring(0,[Math]::Min(70,$x.Body.Length)) -replace '\s+',' ')'"
+}
+
+"`n=== 18. Group lookup failing degrades without breaking the page ==="
+$failFile = Join-Path $env:TEMP "erac_groups_fail.txt"
+Set-Content -Path $failFile -Value "1"
+try {
+  $x = Req GET "/distributiongroups"
+  Check "page still renders when the AD lookup fails" ($x.Status -eq 200 -and $x.Body.Length -gt 2000) "status=$($x.Status) bytes=$($x.Body.Length)"
+  Check "  and still begins with the doctype (no leaked log line)" ($x.Body.TrimStart().StartsWith('<!doctype')) "starts with: '$($x.Body.Substring(0,[Math]::Min(90,$x.Body.Length)) -replace '\s+',' ')'"
+  Check "  the failure is not rendered into the markup" ($x.Body -notmatch "is not recognized") "the cmdlet error text reached the page"
+  Check "  picker says so instead of being silently empty" ($x.Body -match 'could not load groups') "no explanation offered"
+  Check "  the group tables are unaffected" ($x.Body -match 'href="/editdistributiongroup\?id=') "group rows missing"
+} finally { Remove-Item $failFile -ErrorAction SilentlyContinue }
 
 "`n================ $pass passed, $fail failed ================"
 try{Invoke-WebRequest "$base/exit" -UseBasicParsing -TimeoutSec 5|Out-Null}catch{}

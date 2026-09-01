@@ -284,6 +284,43 @@ function Get-AcceptedDomainsListPage {
     return $HTMLRESPONSE
 }
 
+function Get-MailEnableCandidateGroup {
+    # Active Directory groups that are not yet mail-enabled - the candidates for
+    # Mail-Enable a Group. Returns objects with Name and Dn.
+    #
+    # Queried over ADSI rather than with Get-Group: the Recipient Management snap-in
+    # ships a reduced cmdlet set and does NOT include Get-Group ("The term 'Get-Group'
+    # is not recognized"). DirectorySearcher is part of .NET, needs no module, and works
+    # on any domain-joined machine.
+    #
+    # $ERAC_GroupLookup is an optional override. When set to a scriptblock it is used
+    # instead of querying the directory; unset - which is always the case in normal use -
+    # this is a plain ADSI search. The regression harness sets it so the suite never
+    # issues an LDAP query, which matters because that suite is meant to be safe to run
+    # on the Exchange management box itself.
+    if ($ERAC_GroupLookup -is [scriptblock]) { return (& $ERAC_GroupLookup) }
+
+    $Searcher = [adsisearcher]"(&(objectCategory=group)(!(mail=*)))"
+    try {
+        $Searcher.PageSize = 200
+        $Searcher.SizeLimit = 500
+        [void]$Searcher.PropertiesToLoad.AddRange(@('name', 'distinguishedname'))
+
+        $Results = $Searcher.FindAll()
+        try {
+            foreach ($Result in $Results) {
+                $GroupName = [string]$Result.Properties['name'][0]
+                $GroupDn = [string]$Result.Properties['distinguishedname'][0]
+                if ($GroupName -and $GroupDn) {
+                    [pscustomobject]@{ Name = $GroupName; Dn = $GroupDn }
+                }
+            }
+        }
+        finally { $Results.Dispose() }
+    }
+    finally { $Searcher.Dispose() }
+}
+
 function Get-DistributionGroupsListPage {
     param([string]$ResultHtml = "")
 
@@ -302,26 +339,33 @@ function Get-DistributionGroupsListPage {
         elseif ($Item.RecipientTypeDetails -eq "MailUniversalSecurityGroup") { $HTMLROWS_MES += $Row }
     }
 
-    # Populates the Mail-Enable modal's picker. The template has always carried this
-    # placeholder but nothing ever replaced it, so the dropdown was permanently empty -
-    # and being 'required', the browser blocked the form on a control with no options.
+    # Populates the Mail-Enable modal's picker with AD groups that are not yet
+    # mail-enabled. The template has always carried this placeholder but nothing ever
+    # replaced it, so the dropdown was permanently empty - and being 'required', the
+    # browser blocked the form on a control with no options.
     #
-    # Wrapped defensively: this is the only place the page depends on Get-Group, and the
-    # Recipient Management snap-in ships a reduced cmdlet set that varies by CU. If the
-    # cmdlet is missing or errors, the rest of the Distribution Groups page must still
-    # render - it worked before this picker existed and must keep working.
+    # Queried over ADSI rather than Get-Group: the Recipient Management snap-in ships a
+    # reduced cmdlet set and does not include Get-Group. DirectorySearcher is part of
+    # .NET, needs no module, and works on any domain-joined machine.
+    #
+    # Note the Write-Host in the catch. A bare string here would not go to the console -
+    # inside a function it becomes part of the RETURN VALUE, so it was concatenated onto
+    # the HTML and rendered as text at the top of the page.
     $HTMLROWS_GROUPS = ""
     try {
-        foreach ($Item in (Get-Group -ResultSize Unlimited -ErrorAction Stop |
-                Where-Object { -not $_.WindowsEmailAddress -and $_.GroupType -notlike "*BuiltinLocal*" } |
-                Select-Object -First 500 Name)) {
-            $SafeName = ConvertTo-SafeHtml $Item.Name
-            $HTMLROWS_GROUPS += "`n<option value=`"$SafeName`">$SafeName</option>"
+        # The distinguished name is the option value: it is unambiguous where two OUs
+        # hold a group of the same name, and Enable-DistributionGroup accepts a DN.
+        foreach ($Group in (@(Get-MailEnableCandidateGroup) | Sort-Object Name)) {
+            $HTMLROWS_GROUPS += "`n<option value=`"$(ConvertTo-SafeHtml $Group.Dn)`">$(ConvertTo-SafeHtml $Group.Name)</option>"
+        }
+
+        if (-not $HTMLROWS_GROUPS) {
+            $HTMLROWS_GROUPS = "`n<option value=`"`">(no groups found that are not already mail-enabled)</option>"
         }
     }
     catch {
-        "$(Get-Date -Format s) Could not enumerate AD groups for the mail-enable picker: $($_.Exception.Message)"
-        $HTMLROWS_GROUPS = "`n<option value=`"`">(could not load groups - see console)</option>"
+        Write-Host "$(Get-Date -Format s) Could not enumerate AD groups for the mail-enable picker: $($_.Exception.Message)"
+        $HTMLROWS_GROUPS = "`n<option value=`"`">(could not load groups - see the console window)</option>"
     }
 
     $HTMLRESPONSE = Read-Template "distributiongroups.html"
